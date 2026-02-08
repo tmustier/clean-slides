@@ -91,6 +91,7 @@ pi install npm:@tmustier/pi-clean-slides
 Or manually:
 
 ```bash
+# clone into your agent skills directory (e.g. ~/.pi/agent/skills/, ~/.claude/skills/)
 git clone https://github.com/tmustier/clean-slides && cd clean-slides
 pip install -e .
 pptx init           # creates .clean-slides/ with a bundled example template
