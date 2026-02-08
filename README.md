@@ -80,6 +80,14 @@ If you want a tool that produces polished decks with graphics and imagery, this 
 
 ## Quick Start
 
+With [Pi](https://pi.dev):
+
+```bash
+pi install npm:@tmustier/pi-clean-slides
+```
+
+Or manually:
+
 ```bash
 git clone https://github.com/tmustier/clean-slides && cd clean-slides
 pip install -e .

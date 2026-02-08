@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "clean-slides"
-version = "0.3.0"
+version = "0.1.0"
 description = "Generate consulting-style PowerPoint tables from YAML"
 readme = "README.md"
 license = {text = "MIT"}
