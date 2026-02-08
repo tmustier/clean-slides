@@ -77,7 +77,7 @@ If you want a tool that produces polished decks with graphics and imagery, this 
 
 ## Template
 
-- **Quick start:** works out-of-the-box with the bundled [example template](clean_slides/example-template/)
+- **Quick start:** works out-of-the-box with the bundled [example template](clean_slides/example-template/) which is used for the screenshots above
 - **BYO:** load your own template by dropping it in `.clean-slides/template.pptx` and [creating the config](docs/TEMPLATE-CONFIG.md)
 
 ## Quick Start
