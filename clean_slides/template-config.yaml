@@ -1,0 +1,204 @@
+colors:
+  midnight: "#0D193B"
+  light_1: "#F1F5F9"
+  light_2: "#CBD5E1"
+  slate: "#64748B"
+  electric_blue: "#2251FF"
+  cyan: "#00A9F4"
+  red: "#E5546C"
+  orange: "#FAA082"
+  beige: "#E8BDAD"
+  light_green: "#92D050"
+  green: "#00B050"
+
+fonts:
+  headline: "Georgia"
+  body: "Arial"
+
+font_sizes:
+  title: 25
+  subtitle: 16
+  table_header: 16
+  table_body: 16
+  footnote: 8
+  tracker: 8
+  default: 12
+
+# Soft limits used for agent-friendly warnings (not hard enforcement)
+text_limits:
+  title_max_lines: 2
+  subtitle_max_lines: 1
+  title_slide_subtitle_max_lines: 1
+
+layout:
+  slide_width_emu: 12192000
+  slide_height_emu: 6858000
+  left_margin_emu: 554736
+  right_margin_emu: 554736
+  top_margin_emu: 182372
+  tracker_y_emu: 75436
+  title_y_emu: 182372
+  subtitle_y_emu: 903863
+  header_line_y_emu: 1181907
+  content_start_y_emu: 1710000
+  footer_line_y_emu: 6453769
+  footer_y_emu: 6498756
+
+dividers:
+  header_pt: 1.5
+  row_pt: 0.5
+  footer_pt: 0.5
+
+bullets:
+  def_tab_sz_emu: 914354
+  bu_font:
+    typeface: "Arial"
+    pitch_family: "34"
+    charset: "0"
+  def_rpr:
+    size_pt: 16
+    kern_pt: 12
+    scheme: "tx1"
+    latin: "+mn-lt"
+    cs: "Arial"
+    cs_pitch_family: "34"
+    cs_charset: "0"
+  levels:
+    - level: 1
+      bullet: ""
+      mar_l_emu: 0
+      indent_emu: 0
+      spc_bef_pt: 5.0
+      spc_aft_pt: 0.0
+      ln_spc_pct: 114000
+    - level: 2
+      bullet: "•"
+      mar_l_emu: 228589
+      indent_emu: -225414
+      spc_bef_pt: 2.5
+      spc_aft_pt: 0.0
+      ln_spc_pct: 114000
+    - level: 3
+      bullet: "—"
+      mar_l_emu: 515914
+      indent_emu: -287323
+      spc_bef_pt: 1.25
+      spc_aft_pt: 0.0
+      ln_spc_pct: 114000
+    - level: 4
+      bullet: "»"
+      mar_l_emu: 742913
+      indent_emu: -182554
+      spc_bef_pt: 1.25
+      spc_aft_pt: 0.0
+      ln_spc_pct: 114000
+    - level: 5
+      bullet: "›"
+      mar_l_emu: 914354
+      indent_emu: -136519
+      spc_bef_pt: 1.25
+      spc_aft_pt: 0.0
+      ln_spc_pct: 114000
+    - level: 6
+      bullet: "◦"
+      mar_l_emu: 1085797
+      indent_emu: -171442
+      spc_bef_pt: 0.0
+      spc_aft_pt: 3.0
+      ln_spc_pct: 114000
+    - level: 7
+      bullet: ""
+      mar_l_emu: 914356
+      indent_emu: 0
+      spc_bef_pt: 0.0
+      spc_aft_pt: 3.0
+      ln_spc_pct: 100000
+    - level: 8
+      bullet: "▫"
+      mar_l_emu: 1085797
+      indent_emu: -171442
+      spc_bef_pt: 0.0
+      spc_aft_pt: 3.0
+      ln_spc_pct: 100000
+    - level: 9
+      bullet: "▫"
+      mar_l_emu: 1085797
+      indent_emu: -171442
+      spc_bef_pt: 0.0
+      spc_aft_pt: 3.0
+      ln_spc_pct: 100000
+
+table_defaults:
+  min_row_height_in: 0.4
+  cell_padding_emu: 45720
+  header_row_height_in: 0.5
+  width_step_emu: 45720
+  default_width_in: 1.5
+  row_header_width_in: 1.0
+  moon_width_in: 0.7
+  bullets_width_in: 4.0
+  superheader_pt_boost: 2
+  line_spacing: 1.14
+  max_header_lines: 4
+  row_header_target_lines: 2
+  shape_id_start: 1000
+  legend:
+    label_pt: 8
+    y_offset_in: 0.30
+    row_height_ratio: 1.6
+    gap_ratio: 0.4
+    char_width_ratio: 0.55
+
+placeholders:
+  title: 0
+  subtitle: 1
+  tracker: 17
+
+default_colors:
+  body_text: "tx1"
+  col_header: "tx1"
+  col_superheader: "tx1"
+  row_header: "accent2"
+  row_superheader: "tx1"
+  divider: "tx1"
+  link: "accent2"
+
+icons:
+  default_size_emu: 228600
+
+moon:
+  size_emu: 228600
+  arc_adjustments:
+    "100": null
+    "75": ["16200000", "0"]
+    "50": ["16200000", "10800000"]
+    "25": ["16200000", "5400000"]
+    "0": ["16200000", "16200000"]
+  fills:
+    critical: 100
+    full: 100
+    high: 75
+    "75": 75
+    medium: 50
+    "50": 50
+    low: 25
+    "25": 25
+    none: 0
+    empty: 0
+    na: 0
+    disabled: 0
+  colors:
+    critical: "#E5546C"
+    high: "#FAA082"
+    medium: "#E8BDAD"
+    low: "#CBD5E1"
+    none: null
+    na: "#CBD5E1"
+    disabled: "#CBD5E1"
+  group:
+    child_offset_x: 762000
+    child_offset_y: 1270000
+    child_size: 254000
+    line_width_emu: 9525
+    bg_fill: "#F8FAFC"
+    outline_scheme: "tx1"

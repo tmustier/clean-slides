@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clean-slides"
+version = "0.3.0"
+description = "Generate consulting-style PowerPoint tables from YAML"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+keywords = ["powerpoint", "pptx", "slides", "consulting", "tables"]
+
+dependencies = [
+    "python-pptx>=0.6.21",
+    "PyYAML>=6.0",
+    "lxml>=4.9.0",
+    "typing-extensions>=4.0",
+    # render/crop
+    "Pillow>=10.0.0",
+    "pdf2image>=1.17.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0",
+]
+dev = [
+    "clean-slides[test]",
+    "black",
+    "ruff",
+    "pre-commit",
+    "pyright==1.1.408",
+    "python-pptx-stubs>=1.0.2.post1",
+    "lxml-stubs>=0.5.1",
+    "types-PyYAML",
+]
+
+[project.scripts]
+pptx = "clean_slides.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["clean_slides*"]
+
+[tool.setuptools.package-data]
+clean_slides = [
+    "template-config.yaml",
+    "example-template/*",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]

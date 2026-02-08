@@ -1,0 +1,9 @@
+{
+  "include": ["clean_slides", "tests"],
+  "typeCheckingMode": "strict",
+  "pythonVersion": "3.9",
+  "venvPath": ".",
+  "venv": ".venv",
+  "reportMissingTypeStubs": false,
+  "stubPath": "typings"
+}
