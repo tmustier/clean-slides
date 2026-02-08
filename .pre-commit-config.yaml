@@ -1,0 +1,37 @@
+# Pre-commit hooks for formatting, linting, and type-checking.
+#
+# Install:
+#   pip install -e '.[dev]'
+#   pre-commit install
+#
+# Run manually:
+#   pre-commit run --all-files
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-merge-conflict
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.10
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+
+  - repo: https://github.com/psf/black
+    rev: 24.4.2
+    hooks:
+      - id: black
+
+  - repo: local
+    hooks:
+      - id: pyright
+        name: pyright (strict)
+        entry: pyright
+        language: python
+        additional_dependencies: [pyright==1.1.408]
+        pass_filenames: false
