@@ -4,8 +4,8 @@ An opinionated CLI for AI agents to generate consulting-style PowerPoint slides 
 
 Here are two examples, neither touched by me:
 
-![Example — tokenization scenarios](docs/screenshots/example-tokenization.png)
-![Example — commodities fit assessment](docs/screenshots/example-commodities.png)
+![Example — tokenization scenarios](https://raw.githubusercontent.com/tmustier/clean-slides/main/docs/screenshots/example-tokenization.png)
+![Example — commodities fit assessment](https://raw.githubusercontent.com/tmustier/clean-slides/main/docs/screenshots/example-commodities.png)
 
 ## What it does
 

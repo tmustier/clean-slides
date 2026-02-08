@@ -1,6 +1,6 @@
 {
   "name": "@tmustier/pi-clean-slides",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "PowerPoint CLI skill for Pi — inspect, edit, generate table slides from YAML, render to PNG.",
   "license": "MIT",
   "author": "Thomas Mustier",

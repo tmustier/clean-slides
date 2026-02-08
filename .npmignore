@@ -1,0 +1,31 @@
+# Dev / CI
+.github/
+.pre-commit-config.yaml
+.ralph/
+.reference/
+.research/
+.sandbox/
+.clean-slides/
+.long-task-harness/
+pyrightconfig.json
+typings/
+
+# Tests
+tests/
+
+# Docs (images served from GitHub)
+docs/
+ppt-template/
+
+# Examples (large .pptx files)
+examples/
+
+# Sandbox
+sandbox/
+outputs/
+
+# Build artifacts
+*.egg-info/
+dist/
+__pycache__/
+.venv/
