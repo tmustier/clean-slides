@@ -28,7 +28,7 @@ from .constants import (
 from .content import Paragraph, normalize_cell
 from .icons import IconSet, icon_cell_value
 from .measure import column_right_pads, should_use_line_breaks, textbox_width
-from .spec import Box, ContentArea, TableLayout, TableSpec
+from .spec import Box, CellOverride, ContentArea, TableLayout, TableSpec
 from .text_metrics import EMU_PER_PT
 from .xml_helpers import (
     create_line_xml,
@@ -335,6 +335,25 @@ class TableRenderer:
     # Body cells (shared — works for both flat and grouped)
     # -----------------------------------------------------------------------
 
+    @staticmethod
+    def _apply_override(paragraphs: List[Paragraph], ov: CellOverride) -> List[Paragraph]:
+        """Return a copy of *paragraphs* with override formatting applied."""
+        out: List[Paragraph] = []
+        for p in paragraphs:
+            out.append(
+                Paragraph(
+                    text=p.text,
+                    lvl=p.lvl,
+                    font=ov.font if ov.font is not None else p.font,
+                    size_pt=ov.size if ov.size is not None else p.size_pt,
+                    color=ov.color if ov.color is not None else p.color,
+                    bold=ov.bold if ov.bold is not None else p.bold,
+                    italic=p.italic,
+                    underline=p.underline,
+                )
+            )
+        return out
+
     def _render_body(
         self,
         spec: TableSpec,
@@ -381,6 +400,24 @@ class TableRenderer:
                 paragraphs = normalize_cell(value, default, parse_bullets=spec.parse_bullets)
                 grid_col = ci + col_offset
 
+                # Merge row / column overrides (row wins over column).
+                row_ov = spec.row_overrides.get(ri)
+                col_ov = spec.col_overrides.get(ci)
+                align = "l"
+                anchor = "t"
+                if col_ov is not None:
+                    paragraphs = self._apply_override(paragraphs, col_ov)
+                    if col_ov.align:
+                        align = col_ov.align
+                    if col_ov.anchor:
+                        anchor = col_ov.anchor
+                if row_ov is not None:
+                    paragraphs = self._apply_override(paragraphs, row_ov)
+                    if row_ov.align:
+                        align = row_ov.align
+                    if row_ov.anchor:
+                        anchor = row_ov.anchor
+
                 # Use line breaks (no inter-paragraph spacing) when all
                 # paragraphs are at lvl 0 — these are header-like sub-labels,
                 # not bulleted content.
@@ -388,6 +425,8 @@ class TableRenderer:
                 self._add_cell(
                     layout.cells[ri + row_offset][grid_col],
                     paragraphs,
+                    align=align,
+                    anchor=anchor,
                     pad_top=layout.pad_top,
                     pad_bottom=layout.pad_bottom,
                     right_pad=self._col_right_pads[grid_col],

@@ -1,149 +1,147 @@
 # Clean Slides
 
-PowerPoint CLI for inspection, editing, generation, and rendering. Features include:
+An opinionated CLI for AI agents to generate consulting-style PowerPoint slides from YAML. Not a general-purpose slide builder. It produces the kind of minimal, information-dense tables I preferred to write at McKinsey: no graphics, no effects, just structured thinking in a clear, visual format.
 
-- **YAML → PPTX** table generation with automatic layout solving
-- **Custom templates** with configurable colours, fonts, and content areas
-- **Inline formatting**: `**bold**`, `*italic*`, `[links](url)` with clickable hyperlinks
-- **Icons, bullets, row/column headers, superheaders, sidebars**
-- **Render** slides to PNG via PowerPoint or LibreOffice
+Here are two examples, neither touched by me:
+
+![Example — tokenization scenarios](docs/screenshots/example-tokenization.png)
+![Example — commodities fit assessment](docs/screenshots/example-commodities.png)
+
+## What it does
+
+Your agent writes a YAML spec describing a table's content and structure. Clean Slides handles the layout — column widths, row heights, font sizing, dividers, bullet hierarchy — and produces a `.pptx` file that looks like it was built by hand.
+
+```yaml
+title: The potential scale of tokenization adoption hinges on multiple factors.
+subtitle: Forecasts of three potential adoption scenarios, 2030, nonexhaustive
+
+table:
+  rows: 6
+  cols: 4
+  has_col_header: true
+  has_row_header: true
+  col_headers: ["Slower adoption", "Base scenario", "Accelerated adoption"]
+  col_header_color: accent1
+  column_widths: [0, 1, 1, 1]  # custom weights (remove for html-4 style default)
+
+  row_headers:
+    - - { text: "Potential 2030 tokenized market cap" }
+      - { text: "US$ trillion", color: tx1, bold: false }
+    - "Regulation"
+    - "Infrastructure and enablers"
+    - "Market demand"
+    - "Risk and reputation"
+
+  row_overrides:
+    0:
+      align: ctr
+      anchor: ctr
+      bold: true
+      color: accent1
+      size: 20
+
+  cells:
+    - ["$0.8T", "$1.9T", "$3.8T"]
+    - ["Regulatory challenges remain high", "Regional disparities exist, but regulatory clarity is increasing", "Permissive regulation"]
+    - ["Inadequate infrastructure to support tokenization, lack of enablers (eg, institutional-grade stablecoin)", "Infrastructure reaches adequate maturity, required enablers emerge", "Infrastructure and enablers reach institutional-grade maturity, available at scale"]
+    - ["No solution to cold start problem limits demand for tokenization", "Some assets tokenized at scale catalyzed by larger players", "Cold start problem is overcome by industry-wide collaboration"]
+    - ["Systemic risk event occurs and limits or discourages adoption", "Limited security issues or systemic risk events", ""]
+```
+
+```bash
+pptx generate tokenization.yaml -o tokenization.pptx
+```
+
+That's mostly it. The tool also handles:
+
+- **Inline formatting** — `**bold**`, `*italic*`, `[links](url)` in any cell
+- **Bullet hierarchy** — nested paragraphs with configurable indent levels
+- **Icon indicators** — traffic-light circles for RAG status, severity, etc.
+- **Sidebars** — split layouts (2/3, 3/4) with formatted text in the secondary area
+- **Slide inspection and editing** — read shapes, edit text, merge decks
+
+## What it doesn't do
+
+This is a **text table tool**, not a presentation platform. It won't:
+
+- Generate charts, diagrams, or images
+- Apply transitions or animations
+- Create freeform layouts or infographics
+- Auto-generate content — you think the thoughts, the agent helps you structure them and handles formatting
+
+The design is deliberately constrained. Tables are the primary medium because a table is the minimal way to express structured thinking. Even the default bullet style at level zero is _no bullet_ — because bullets add visual clutter that doesn't serve the reader.
+
+If you want a tool that produces polished decks with graphics and imagery, this isn't it. If you want something that takes structured text and produces clean, consistent, professional-looking table slides — fast — this is what it's for.
+
+## Template
+
+- **Quick start:** works out-of-the-box with the bundled [example template](clean_slides/example-template/) (and see a fun one-shotted deck about the adorable Russian Desman [here](examples/custom-template/vykhukhol.pptx))
+- **BYO:** load your own template by dropping it in `.clean-slides/template.pptx` and [creating the config](docs/TEMPLATE-CONFIG.md)
 
 ## Quick Start
 
-Install and generate a slide in two commands:
-
 ```bash
+git clone https://github.com/tmustier/clean-slides && cd clean-slides
 pip install -e .
-pptx init                              # sets up .clean-slides/ with an example template
+pptx init           # creates .clean-slides/ with a bundled example template
 ```
 
-Then create a YAML spec and generate:
+Write a YAML file (see example above), then:
 
 ```bash
-cat > slide.yaml << 'EOF'
-title: Revenue Summary
-table:
-  rows: 3
-  cols: 2
-  has_col_header: true
-  col_headers: ["Metric", "Value"]
-  cells:
-    - ["Revenue", "$1.2M"]
-    - ["Growth", "15% YoY"]
-EOF
-
 pptx generate slide.yaml -o output.pptx
 ```
 
-The template and config in `.clean-slides/` are picked up automatically — no flags needed.
+The template and config in `.clean-slides/` are discovered automatically — no flags needed.
 
-## Initialising with Your Own Template
+## Using your own template
 
-To use your corporate or custom template instead of the bundled example:
+Any `.pptx` works as a template — a corporate deck, a downloaded theme, or something you design.
 
 ```bash
-# Option A: init with your template (generates a starter config automatically)
+# Initialise with your template (auto-generates a starter config)
 pptx init -t my-template.pptx
 
-# Option B: generate config separately, then set up the project
-pptx init-config my-template.pptx -o my-config.yaml
-# review and adjust my-config.yaml, then:
+# Or do it manually
+pptx init-config my-template.pptx -o config.yaml   # inspect + generate config
 mkdir .clean-slides
 cp my-template.pptx .clean-slides/template.pptx
-cp my-config.yaml .clean-slides/config.yaml
+cp config.yaml .clean-slides/config.yaml
 ```
 
-Once `.clean-slides/` exists, all `pptx generate` commands in that directory (or below) automatically use your template and config. Edit `.clean-slides/config.yaml` to adjust colours, fonts, placeholders, and bullet styles.
-
-See [docs/TEMPLATE-CONFIG.md](docs/TEMPLATE-CONFIG.md) for full config documentation, and [examples/custom-template/](examples/custom-template/) for a worked example.
+Then edit `.clean-slides/config.yaml` to map your template's colours, fonts, and placeholder indices. See [docs/TEMPLATE-CONFIG.md](docs/TEMPLATE-CONFIG.md) for the full reference, and [examples/custom-template/](examples/custom-template/) for a worked example.
 
 ## Commands
 
-### Inspect
+| Command | Purpose |
+|---------|---------|
+| `pptx generate <yaml...>` | Generate slides from YAML specs |
+| `pptx validate <yaml...>` | Check YAML against schema |
+| `pptx verify <yaml...>` | Check sizing and overflow |
+| `pptx show <file> [slide] [shape]` | Inspect slides and shapes |
+| `pptx layouts <file>` | Show template layouts and content areas |
+| `pptx theme <file>` | Show colour scheme |
+| `pptx edit <file> <slide> <shape> <text>` | Edit shape text |
+| `pptx insert <deck> <source>` | Merge slides from another file |
+| `pptx render <file> <slide>` | Render to PNG |
+| `pptx init [-t template]` | Bootstrap a `.clean-slides/` project |
+| `pptx init-config <template>` | Generate config from a template |
 
-```bash
-pptx show <file>                       # slide index with layout, shape count, words
-pptx show <file> <slide>               # all shapes sorted by position
-pptx show <file> <slide> <shape>       # full detail (text, formatting, chart data)
-
-pptx theme <file>                      # colour scheme
-pptx xml <file> <slide> <shape>        # raw XML (escape hatch)
-```
-
-### Edit
-
-```bash
-pptx edit <file> <slide> <shape> <text> [--out PATH]
-pptx batch <file> <edits.json> [--out PATH]
-```
-
-**Text formats:**
-- Plain: `"Hello world"`
-- With formatting: `'{"paragraphs": [{"runs": [{"text": "Bold", "bold": true}]}]}'`
-
-Run fields: `text`, `font`, `size`, `bold`, `italic`, `underline`, `color`, `superscript`, `subscript`
-
-### Slide Management
-
-```bash
-pptx add-slide <file> <layout> [--at N] [--out PATH]
-pptx delete-slide <file> <slide> --confirm [--out PATH]
-pptx delete-shape <file> <slide> <shape> [--out PATH]
-
-# Insert/merge slides from another deck
-pptx insert <deck.pptx> <source.pptx> [--at N] [--slides 1,3-5] [--out PATH]
-```
-
-### Render
-
-```bash
-pptx render <file> <slide> [--out DIR] [--dpi N]
-pptx crop <png> <L> <T> <R> <B> [--out PATH]
-```
-
-### Setup
-
-```bash
-pptx init [-t template.pptx]           # create .clean-slides/ project directory
-pptx init-config <template.pptx>       # generate config YAML from a template
-```
-
-### Generate (YAML → PPTX)
-
-```bash
-pptx generate <yaml...> [-o out.pptx] [-t template.pptx] [-c config.yaml]
-pptx validate <yaml...> [-c config.yaml]
-pptx verify <yaml...> [--detail] [-c config.yaml]
-```
-
-## YAML Input
-
-```yaml
-title: Quarterly Update
-
-table:
-  rows: 4
-  cols: 3
-  has_col_header: true
-  has_row_header: true
-  col_headers: ["Region", "Revenue", "Growth"]
-  cells:
-    - ["North America", "$4.2M", "12%"]
-    - ["Europe", "$2.8M", "8%"]
-    - ["Asia-Pacific", "$1.5M", "22%"]
-```
-
-Supports `**bold**`, `*italic*`, and `[clickable links](https://example.com)` in any cell.
-
-Full schema: [docs/INPUT-SCHEMA.md](docs/INPUT-SCHEMA.md)
+Full YAML schema: [docs/INPUT-SCHEMA.md](docs/INPUT-SCHEMA.md)
 
 ## Development
 
 ```bash
 pip install -e '.[dev]'
 pre-commit install
-
-# Run checks
 python -m pytest -q
 pyright clean_slides/
 ```
+
+## Why this exists
+
+I spent six years writing slides in consulting. Most AI slide tools focus on imagery and visual polish — which has its place, but isn't what makes a consulting slide useful. A good slide is a unit of structured argumentation that happens to be visual. You figure out the narrative first, decompose it into pages, then fill each page with the component parts of your argument.
+
+This tool takes that workflow seriously. You focus on the content and structure; it handles the formatting. When used with an AI agent, it produces first drafts that feel like they belong in the document — consistent style, proper hierarchy, no "generated by AI" aesthetic. The constraint is the point.
+
+More on the design philosophy: [thomasmustier.com/projects/clean-slides](https://thomasmustier.com/projects/clean-slides)

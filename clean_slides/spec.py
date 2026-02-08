@@ -1,7 +1,7 @@
 """Table specification and layout dataclasses."""
 
 from dataclasses import dataclass, field
-from typing import Any, List, Optional, Tuple, TypedDict, Union
+from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union
 
 from typing_extensions import TypeGuard
 
@@ -23,6 +23,57 @@ icon_cell_value = _icon_cell_value
 Box = Tuple[int, int, int, int]  # x, y, w, h in EMU
 
 
+# ---------------------------------------------------------------------------
+# Row / column overrides
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class CellOverride:
+    """Formatting override applied to all body cells in a row or column.
+
+    Fields that are ``None`` are not overridden (cell keeps its default).
+    """
+
+    align: Optional[str] = None  # "l", "ctr", "r"
+    anchor: Optional[str] = None  # "t", "ctr", "b"
+    bold: Optional[bool] = None
+    color: Optional[str] = None
+    size: Optional[int] = None  # pt
+    font: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "CellOverride":
+        raw_size = data.get("size")
+        return cls(
+            align=str(data["align"]) if "align" in data else None,
+            anchor=str(data["anchor"]) if "anchor" in data else None,
+            bold=bool(data["bold"]) if "bold" in data else None,
+            color=str(data["color"]) if "color" in data else None,
+            size=int(raw_size) if raw_size is not None else None,
+            font=str(data["font"]) if "font" in data else None,
+        )
+
+
+def _parse_overrides(raw: object) -> dict[int, CellOverride]:
+    """Parse ``row_overrides`` or ``col_overrides`` from YAML.
+
+    Accepts ``{0: {align: ctr, ...}, 2: {bold: true}}`` mapping body-row
+    (or body-column) indices to override dicts.
+    """
+    if not _is_dict(raw):
+        return {}
+    result: dict[int, CellOverride] = {}
+    for key, value in raw.items():
+        try:
+            idx = int(key)
+        except (TypeError, ValueError):
+            continue
+        if _is_dict(value):
+            result[idx] = CellOverride.from_dict(_stringify_keys(value))
+    return result
+
+
 def _is_dict(value: object) -> TypeGuard[dict[Any, Any]]:
     return isinstance(value, dict)
 
@@ -39,6 +90,13 @@ def _as_str_list(value: object) -> Optional[List[str]]:
     if not _is_list(value):
         return None
     return [str(item) for item in value]
+
+
+def _as_any_list(value: object) -> Optional[List[Any]]:
+    """Like ``_as_str_list`` but preserves dicts/lists for rich content."""
+    if not _is_list(value):
+        return None
+    return list(value)
 
 
 def _as_float_list(value: object) -> Optional[List[float]]:
@@ -194,7 +252,7 @@ class TableSpec:
     col_headers: Optional[List[str]] = None
     col_superheaders: Optional[List[ColSuperHeader]] = None
     row_header_col_header: Optional[str] = None  # col header for the row-header column
-    row_headers: Optional[List[str]] = None
+    row_headers: Optional[List[Any]] = None
     cells: Optional[List[List[Any]]] = None
 
     groups: Optional[List[RowGroup]] = None  # superheader groups
@@ -225,6 +283,14 @@ class TableSpec:
     @property
     def effective_row_superheader_color(self) -> str:
         return self.row_superheader_color or DefaultColors.ROW_SUPERHEADER
+
+    # Row / column overrides — keyed by body-row or body-column index
+    row_overrides: Dict[int, CellOverride] = field(
+        default_factory=lambda: dict[int, CellOverride]()
+    )
+    col_overrides: Dict[int, CellOverride] = field(
+        default_factory=lambda: dict[int, CellOverride]()
+    )
 
     # Icon indicators (traffic lights, RAG, etc.)
     icons: Optional[IconSet] = None
@@ -266,14 +332,14 @@ class TableSpec:
 
         # Auto-extract row headers from cells' first column when
         # has_row_header is set but no explicit row_headers list provided.
-        explicit_row_headers = _as_str_list(table.get("row_headers"))
+        explicit_row_headers = _as_any_list(table.get("row_headers"))
         if (
             has_row_header
             and explicit_row_headers is None
             and cells is not None
             and all(len(row) >= 2 for row in cells)
         ):
-            explicit_row_headers = [str(row[0]) for row in cells]
+            explicit_row_headers = [row[0] for row in cells]
             cells = [row[1:] for row in cells]
 
         body_rows = total_rows - header_rows
@@ -324,6 +390,8 @@ class TableSpec:
             col_widths=col_widths_parsed,
             body_default_lvl=body_default_lvl,
             parse_bullets=bool(table.get("parse_bullets", True)),
+            row_overrides=_parse_overrides(table.get("row_overrides")),
+            col_overrides=_parse_overrides(table.get("col_overrides")),
             icons=icons,
             **cls._parse_header_colors(table),
         )
@@ -418,6 +486,8 @@ class TableSpec:
             col_widths=col_widths_parsed,
             body_default_lvl=body_default_lvl,
             parse_bullets=bool(table.get("parse_bullets", True)),
+            row_overrides=_parse_overrides(table.get("row_overrides")),
+            col_overrides=_parse_overrides(table.get("col_overrides")),
             icons=icons,
             **cls._parse_header_colors(table),
         )
