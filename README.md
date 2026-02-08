@@ -7,6 +7,8 @@ Here are two examples, neither touched by me:
 ![Example — tokenization scenarios](https://raw.githubusercontent.com/tmustier/clean-slides/main/docs/screenshots/example-tokenization.png)
 ![Example — commodities fit assessment](https://raw.githubusercontent.com/tmustier/clean-slides/main/docs/screenshots/example-commodities.png)
 
+(and see a fun one-shotted deck about the adorable Russian Desman [here](examples/custom-template/vykhukhol.pptx))
+
 ## What it does
 
 Your agent writes a YAML spec describing a table's content and structure. Clean Slides handles the layout — column widths, row heights, font sizing, dividers, bullet hierarchy — and produces a `.pptx` file that looks like it was built by hand.
@@ -75,7 +77,7 @@ If you want a tool that produces polished decks with graphics and imagery, this 
 
 ## Template
 
-- **Quick start:** works out-of-the-box with the bundled [example template](clean_slides/example-template/) (and see a fun one-shotted deck about the adorable Russian Desman [here](examples/custom-template/vykhukhol.pptx))
+- **Quick start:** works out-of-the-box with the bundled [example template](clean_slides/example-template/)
 - **BYO:** load your own template by dropping it in `.clean-slides/template.pptx` and [creating the config](docs/TEMPLATE-CONFIG.md)
 
 ## Quick Start
