@@ -5,8 +5,9 @@ Orchestrates column sizing → row sizing → verification and returns
 a TableLayout + LayoutReport.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import List, Tuple
 
 from .constants import OOXML_FONT_SCALE, DefaultColors, Fonts, TableDefaults
 from .content import Paragraph, normalize_cell
@@ -43,16 +44,16 @@ class ConstraintSolver:
         spec: TableSpec,
         area: ContentArea,
         options: SolveOptions,
-    ) -> Tuple[TableLayout, LayoutReport]:
+    ) -> tuple[TableLayout, LayoutReport]:
         # Font reduction loop — shrink body (and header) until content fits
         # or min_font_pt is reached.
         original_body = options.body_font_pt
         original_header = options.header_font_pt
 
-        col_widths: List[int] = []
-        row_heights: List[int] = []
-        col_warns: List[SizingWarning] = []
-        row_warns: List[SizingWarning] = []
+        col_widths: list[int] = []
+        row_heights: list[int] = []
+        col_warns: list[SizingWarning] = []
+        row_warns: list[SizingWarning] = []
         fonts: FontConfig = self._resolve_fonts(spec, options)
 
         max_delta = max(original_body - options.min_font_pt, 0)
@@ -153,13 +154,13 @@ class ConstraintSolver:
     @staticmethod
     def _build_cells(
         area: ContentArea,
-        col_widths: List[int],
-        row_heights: List[int],
-    ) -> List[List[Box]]:
-        cells: List[List[Box]] = []
+        col_widths: list[int],
+        row_heights: list[int],
+    ) -> list[list[Box]]:
+        cells: list[list[Box]] = []
         y = area.y
         for h in row_heights:
-            row: List[Box] = []
+            row: list[Box] = []
             x = area.x
             for w in col_widths:
                 row.append((x, y, w, h))

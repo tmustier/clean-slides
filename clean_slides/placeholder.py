@@ -2,12 +2,14 @@
 Placeholder content generation.
 """
 
+from __future__ import annotations
+
 from dataclasses import replace
-from typing import Any, List
+from typing import Any
 
 from .spec import TableSpec
 
-TITLE_WORDS: List[str] = [
+TITLE_WORDS: list[str] = [
     "Placeholder",
     "Title",
     "Goes",
@@ -18,17 +20,17 @@ TITLE_WORDS: List[str] = [
     "Summary",
 ]
 
-BODY_SENTENCES: List[str] = [
+BODY_SENTENCES: list[str] = [
     "This is placeholder text describing the point.",
     "Add more detail here when final content is ready.",
     "Use this space for supporting context and evidence.",
 ]
 
 
-def _cycle_words(words: List[str], count: int) -> List[str]:
+def _cycle_words(words: list[str], count: int) -> list[str]:
     if count <= 0:
         return []
-    result: List[str] = []
+    result: list[str] = []
     idx = 0
     while len(result) < count:
         result.append(words[idx % len(words)])
@@ -50,9 +52,9 @@ def placeholder_body(sentences: int = 2) -> str:
 
 def fill_placeholders(spec: TableSpec) -> TableSpec:
     """Populate missing headers/cells with placeholder text."""
-    col_headers: List[str] = list(spec.col_headers or [])
-    row_headers: List[str] = list(spec.row_headers or [])
-    cells: List[List[Any]] = list(spec.cells or [])
+    col_headers: list[str] = list(spec.col_headers or [])
+    row_headers: list[str] = list(spec.row_headers or [])
+    cells: list[list[Any]] = list(spec.cells or [])
 
     if spec.has_col_header:
         while len(col_headers) < spec.num_cols:
@@ -62,10 +64,10 @@ def fill_placeholders(spec: TableSpec) -> TableSpec:
         while len(row_headers) < spec.num_rows:
             row_headers.append(placeholder_title())
 
-    filled_cells: List[List[Any]] = []
+    filled_cells: list[list[Any]] = []
     for r in range(spec.num_rows):
-        row: List[Any] = cells[r] if r < len(cells) else []
-        new_row: List[Any] = []
+        row: list[Any] = cells[r] if r < len(cells) else []
+        new_row: list[Any] = []
         for c in range(spec.num_cols):
             value = row[c] if c < len(row) else ""
             if not value:

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from clean_slides.sizing import ColumnSizer, FontConfig
 from clean_slides.spec import TableSpec
 from clean_slides.text_metrics import TextMetrics

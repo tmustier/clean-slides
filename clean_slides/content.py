@@ -6,38 +6,38 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from typing_extensions import TypeGuard
 
 BULLET_RE = re.compile(r"^(?P<indent>\s*)([-•])\s+(?P<text>.+)")
 
 
-def _is_dict(value: object) -> TypeGuard[Dict[Any, Any]]:
+def _is_dict(value: object) -> TypeGuard[dict[Any, Any]]:
     return isinstance(value, dict)
 
 
-def _is_list(value: object) -> TypeGuard[List[Any]]:
+def _is_list(value: object) -> TypeGuard[list[Any]]:
     return isinstance(value, list)
 
 
 @dataclass
 class Paragraph:
     text: str
-    lvl: Optional[int] = None
-    font: Optional[str] = None
-    size_pt: Optional[int] = None
-    color: Optional[str] = None
-    bold: Optional[bool] = None
-    italic: Optional[bool] = None
-    underline: Optional[bool] = None
+    lvl: int | None = None
+    font: str | None = None
+    size_pt: int | None = None
+    color: str | None = None
+    bold: bool | None = None
+    italic: bool | None = None
+    underline: bool | None = None
 
 
 def normalize_cell(
     value: Any,
     default: Paragraph,
     parse_bullets: bool = True,
-) -> List[Paragraph]:
+) -> list[Paragraph]:
     """Normalize a cell value into a list of Paragraphs."""
     if value is None:
         return []
@@ -48,11 +48,11 @@ def normalize_cell(
     if _is_dict(value):
         if "icon" in value:
             return []  # icon cells render as shapes, not text
-        data: Dict[str, Any] = {str(k): v for k, v in value.items()}
+        data: dict[str, Any] = {str(k): v for k, v in value.items()}
         return [_merge_paragraph(_paragraph_from_dict(data), default)]
 
     if _is_list(value):
-        paragraphs: List[Paragraph] = []
+        paragraphs: list[Paragraph] = []
         for item in value:
             paragraphs.extend(normalize_cell(item, default, parse_bullets=parse_bullets))
         return paragraphs
@@ -64,9 +64,9 @@ def normalize_cell(
     return [_merge_paragraph(Paragraph(text=text), default)]
 
 
-def _parse_text_lines(text: str, default: Paragraph) -> List[Paragraph]:
+def _parse_text_lines(text: str, default: Paragraph) -> list[Paragraph]:
     lines = text.splitlines() or [""]
-    paragraphs: List[Paragraph] = []
+    paragraphs: list[Paragraph] = []
     for line in lines:
         match = BULLET_RE.match(line)
         if match:
@@ -83,7 +83,7 @@ def _parse_text_lines(text: str, default: Paragraph) -> List[Paragraph]:
     return paragraphs
 
 
-def _paragraph_from_dict(data: Dict[str, Any]) -> Paragraph:
+def _paragraph_from_dict(data: dict[str, Any]) -> Paragraph:
     lvl_raw = data.get("lvl", data.get("level"))
     lvl = int(lvl_raw) if lvl_raw is not None else None
 
@@ -125,7 +125,7 @@ def _merge_paragraph(paragraph: Paragraph, default: Paragraph) -> Paragraph:
     )
 
 
-def _optional_bool(value: Any) -> Optional[bool]:
+def _optional_bool(value: Any) -> bool | None:
     if value is None:
         return None
     return bool(value)

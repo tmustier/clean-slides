@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
 
 from pptx import Presentation
 
@@ -9,21 +10,21 @@ from clean_slides.cli import cmd_generate, cmd_verify
 
 @dataclass
 class GenerateArgs:
-    input: List[str]
-    template: Optional[str]
-    slide_index: Optional[int]
+    input: list[str]
+    template: str | None
+    slide_index: int | None
     keep_existing: bool
     detail: bool
-    output: Optional[str]
-    config: Optional[str] = None
+    output: str | None
+    config: str | None = None
 
 
 @dataclass
 class VerifyArgs:
-    input: List[str]
+    input: list[str]
     detail: bool
-    json: Optional[str]
-    config: Optional[str] = None
+    json: str | None
+    config: str | None = None
 
 
 def _write_yaml(path: Path) -> None:

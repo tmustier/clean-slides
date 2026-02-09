@@ -2,9 +2,10 @@
 Text measurement helpers.
 """
 
+from __future__ import annotations
+
 import re
 from dataclasses import dataclass
-from typing import Dict, Optional
 
 EMU_PER_PT = 12_700  # 1 typographic point = 12,700 EMU
 WORD_RE = re.compile(r"[\w''-]+", re.UNICODE)
@@ -37,7 +38,7 @@ class FontSpec:
 class TextMetrics:
     """Estimate text dimensions using font metrics heuristics."""
 
-    def __init__(self, fonts: Optional[Dict[str, FontSpec]] = None, fudge: float = 1.12):
+    def __init__(self, fonts: dict[str, FontSpec] | None = None, fudge: float = 1.12):
         """*fudge* is a global safety multiplier on all width/height estimates,
         compensating for differences between our heuristic and PowerPoint's
         actual text shaping engine."""
@@ -75,7 +76,7 @@ class TextMetrics:
             return ""
         return max(words, key=len)
 
-    def lines_needed(self, text: Optional[str], width_emu: int, font: str, size_pt: int) -> int:
+    def lines_needed(self, text: str | None, width_emu: int, font: str, size_pt: int) -> int:
         """Estimate how many lines text will wrap to."""
         if width_emu <= 0:
             return 0
@@ -123,7 +124,7 @@ class TextMetrics:
         line_height = int(size_pt * EMU_PER_PT * line_spacing)
         return int(lines * line_height * self.fudge)
 
-    def text_width_no_wrap(self, text: Optional[str], font: str, size_pt: int) -> int:
+    def text_width_no_wrap(self, text: str | None, font: str, size_pt: int) -> int:
         """Return estimated width in EMU if *text* is kept on one line.
 
         Uses the same tokenization/spacing assumptions as :meth:`lines_needed`.

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pathlib import Path
 
 import pytest
@@ -23,8 +25,5 @@ def test_missing_required_key_raises(tmp_path: Path):
     bad_path = tmp_path / "bad-template.yaml"
     bad_path.write_text(yaml.safe_dump(data))
 
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(ValueError, match=r"Missing colors\.midnight"):
         load_template_config(bad_path)
-
-    message = str(excinfo.value)
-    assert "Missing colors.midnight" in message

@@ -10,7 +10,7 @@ Font sizes in points. Returns dataclasses with .to_dict() for serialization.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import DefaultDict, Optional, Protocol, TypedDict
+from typing import Protocol, TypedDict
 
 from lxml import etree
 from pptx.enum.shapes import MSO_SHAPE_TYPE
@@ -37,21 +37,21 @@ def _is_chart_frame(shape: BaseShape) -> TypeGuard[_ChartFrameLike]:
     return isinstance(shape, GraphicFrame) and shape.has_chart
 
 
-def _emu_to_inches(emu: Optional[int]) -> Optional[float]:
+def _emu_to_inches(emu: int | None) -> float | None:
     """Convert EMU to inches, rounded to 4 decimal places."""
     if emu is None:
         return None
     return round(int(emu) / 914400, 4)
 
 
-def _pt_to_float(pt_val: Optional[int]) -> Optional[float]:
+def _pt_to_float(pt_val: int | None) -> float | None:
     """Convert EMU (or Length) to float points."""
     if pt_val is None:
         return None
     return round(int(pt_val) / 12700, 1)
 
 
-def _resolve_rPr_color(rPr: Optional[etree._Element]) -> tuple[Optional[str], Optional[str]]:
+def _resolve_rPr_color(rPr: etree._Element | None) -> tuple[str | None, str | None]:
     """Extract color from an a:rPr XML element directly."""
     if rPr is None:
         return None, None
@@ -69,7 +69,7 @@ def _resolve_rPr_color(rPr: Optional[etree._Element]) -> tuple[Optional[str], Op
     return None, None
 
 
-def _get_fill_info(element: etree._Element) -> "FillInfo":
+def _get_fill_info(element: etree._Element) -> FillInfo:
     """Extract fill information from an spPr-containing element."""
     for ns in ["p", "a"]:
         spPr = element.find(qn(f"{ns}:spPr"))
@@ -78,7 +78,7 @@ def _get_fill_info(element: etree._Element) -> "FillInfo":
     return FillInfo()
 
 
-def _parse_spPr_fill(spPr: Optional[etree._Element]) -> "FillInfo":
+def _parse_spPr_fill(spPr: etree._Element | None) -> FillInfo:
     """Parse fill from an spPr element."""
     if spPr is None:
         return FillInfo()
@@ -105,7 +105,7 @@ def _parse_spPr_fill(spPr: Optional[etree._Element]) -> "FillInfo":
     return FillInfo(type="inherited")
 
 
-def _get_line_info(element: etree._Element) -> "LineInfo":
+def _get_line_info(element: etree._Element) -> LineInfo:
     """Extract line/outline info from an spPr-containing element."""
     for ns in ["p", "a"]:
         spPr = element.find(qn(f"{ns}:spPr"))
@@ -116,7 +116,7 @@ def _get_line_info(element: etree._Element) -> "LineInfo":
     return LineInfo()
 
 
-def _parse_ln(ln: etree._Element) -> "LineInfo":
+def _parse_ln(ln: etree._Element) -> LineInfo:
     """Parse line properties from an a:ln element."""
     width = ln.get("w")
     width_pt = round(int(width) / 12700, 1) if width else None
@@ -191,16 +191,16 @@ class TypographyEntry(TypedDict):
 class SlideSummary(TypedDict):
     title: str
     subtitle: str
-    tracker: Optional[str]
+    tracker: str | None
     text_blocks: list[str]
     shape_count: int
-    chart_count: Optional[int]
+    chart_count: int | None
     typography: list[TypographyEntry]
 
 
 class _ParagraphLike(Protocol):
     @property
-    def alignment(self) -> Optional[PP_PARAGRAPH_ALIGNMENT]: ...
+    def alignment(self) -> PP_PARAGRAPH_ALIGNMENT | None: ...
 
     @property
     def level(self) -> int: ...
@@ -231,8 +231,8 @@ class FillInfo:
     type: str = (
         "inherited"  # "solid", "theme", "gradient", "pattern", "picture", "none", "inherited"
     )
-    color_rgb: Optional[str] = None
-    theme_color: Optional[str] = None
+    color_rgb: str | None = None
+    theme_color: str | None = None
 
     def to_dict(self):
         return {k: v for k, v in asdict(self).items() if v is not None and v != "inherited"}
@@ -249,10 +249,10 @@ class FillInfo:
 
 @dataclass
 class LineInfo:
-    width: Optional[float] = None  # points
-    color_rgb: Optional[str] = None
-    theme_color: Optional[str] = None
-    dash_style: Optional[str] = None
+    width: float | None = None  # points
+    color_rgb: str | None = None
+    theme_color: str | None = None
+    dash_style: str | None = None
 
     def to_dict(self):
         return {k: v for k, v in asdict(self).items() if v is not None}
@@ -282,14 +282,14 @@ class RunInfo:
     """
 
     text: str = ""
-    font: Optional[str] = None  # font name
-    size: Optional[float] = None  # points
-    bold: Optional[bool] = None
-    italic: Optional[bool] = None
-    underline: Optional[bool] = None
-    color: Optional[str] = None  # theme name (e.g. "accent1") or hex (e.g. "#FF0000")
-    superscript: Optional[bool] = None
-    subscript: Optional[bool] = None
+    font: str | None = None  # font name
+    size: float | None = None  # points
+    bold: bool | None = None
+    italic: bool | None = None
+    underline: bool | None = None
+    color: str | None = None  # theme name (e.g. "accent1") or hex (e.g. "#FF0000")
+    superscript: bool | None = None
+    subscript: bool | None = None
 
     def to_dict(self):
         d = {"text": self.text}
@@ -336,12 +336,12 @@ def _runinfo_list() -> list[RunInfo]:
 @dataclass
 class ParagraphInfo:
     runs: list[RunInfo] = field(default_factory=_runinfo_list)
-    alignment: Optional[str] = None
+    alignment: str | None = None
     level: int = 0
-    bullet_char: Optional[str] = None
-    spacing_before: Optional[float] = None  # points
-    spacing_after: Optional[float] = None
-    line_spacing: Optional[float] = None  # percentage
+    bullet_char: str | None = None
+    spacing_before: float | None = None  # points
+    spacing_after: float | None = None
+    line_spacing: float | None = None  # percentage
 
     def to_dict(self):
         d = {"runs": [r.to_dict() for r in self.runs]}
@@ -365,10 +365,10 @@ def _paragraphinfo_list() -> list[ParagraphInfo]:
 @dataclass
 class TextFrameInfo:
     paragraphs: list[ParagraphInfo] = field(default_factory=_paragraphinfo_list)
-    anchor: Optional[str] = None
-    word_wrap: Optional[bool] = None
-    auto_size: Optional[str] = None
-    margins: Optional[dict[str, float]] = None  # inches
+    anchor: str | None = None
+    word_wrap: bool | None = None
+    auto_size: str | None = None
+    margins: dict[str, float] | None = None  # inches
 
     def to_dict(self):
         return {
@@ -393,7 +393,7 @@ class ShapeInfo:
     height: float = 0.0
     rotation: float = 0.0
     text_preview: str = ""
-    placeholder_idx: Optional[int] = None
+    placeholder_idx: int | None = None
     fill: FillInfo = field(default_factory=FillInfo)
     line: LineInfo = field(default_factory=LineInfo)
 
@@ -429,7 +429,7 @@ class ShapeInfo:
 class ShapeDetail(ShapeInfo):
     """Full detail for a shape — returned by inspect_shape()."""
 
-    text_frame: Optional[TextFrameInfo] = None
+    text_frame: TextFrameInfo | None = None
 
     def to_dict(self):
         d = super().to_dict()
@@ -461,8 +461,8 @@ class SeriesInfo:
 @dataclass
 class AxisInfo:
     type: str = ""  # "value" or "category"
-    min_val: Optional[float] = None
-    max_val: Optional[float] = None
+    min_val: float | None = None
+    max_val: float | None = None
     visible: bool = True
     gridlines: bool = False
 
@@ -488,8 +488,8 @@ class ChartInfo:
     series: list[SeriesInfo] = field(default_factory=_seriesinfo_list)
     categories: list[str] = field(default_factory=_str_list)
     axes: list[AxisInfo] = field(default_factory=_axisinfo_list)
-    gap_width: Optional[int] = None
-    plot_area: Optional[dict[str, float]] = None
+    gap_width: int | None = None
+    plot_area: dict[str, float] | None = None
     has_legend: bool = False
 
     def to_dict(self):
@@ -514,10 +514,10 @@ class PlaceholderInfo:
     top: float = 0.0
     width: float = 0.0
     height: float = 0.0
-    default_font: Optional[str] = None
-    default_size: Optional[float] = None
-    default_bold: Optional[bool] = None
-    default_alignment: Optional[str] = None
+    default_font: str | None = None
+    default_size: float | None = None
+    default_bold: bool | None = None
+    default_alignment: str | None = None
 
     def to_dict(self):
         return {k: v for k, v in asdict(self).items() if v is not None}
@@ -620,7 +620,7 @@ def list_slides(prs: Presentation) -> list[SlideListEntry]:
     return result
 
 
-def _resolve_theme_fonts(slide: Slide) -> tuple[Optional[str], Optional[str]]:
+def _resolve_theme_fonts(slide: Slide) -> tuple[str | None, str | None]:
     """
     Get major (heading) and minor (body) font names from the slide's theme.
     Returns (major, minor) — typically both strings, or None if unresolvable.
@@ -669,7 +669,7 @@ def _profile_typography(slide: Slide) -> list[TypographyEntry]:
         has_bold: bool = False
         has_nonbold: bool = False
 
-    combos: DefaultDict[tuple[str, float], _Combo] = defaultdict(_Combo)
+    combos: defaultdict[tuple[str, float], _Combo] = defaultdict(_Combo)
 
     for shape in slide.shapes:
         # Skip title/subtitle placeholders — those have their own sizes
@@ -867,7 +867,7 @@ def inspect_chart(shape: BaseShape) -> ChartInfo:
         "doughnutChart": "doughnut",
     }
     chart_type = "unknown"
-    chart_type_el: Optional[etree._Element] = None
+    chart_type_el: etree._Element | None = None
     for local_name, friendly in chart_type_map.items():
         el = plotArea.find(qn(f"c:{local_name}"))
         if el is not None:
@@ -984,7 +984,7 @@ def inspect_chart(shape: BaseShape) -> ChartInfo:
                 gap_width = int(gw_val)
 
     # Plot area layout
-    plot_layout: Optional[dict[str, float]] = None
+    plot_layout: dict[str, float] | None = None
     layout = plotArea.find(qn("c:layout"))
     if layout is not None:
         ml = layout.find(qn("c:manualLayout"))
@@ -1134,7 +1134,7 @@ def resolve_theme_colors(prs: Presentation) -> dict[str, str]:
     return colors
 
 
-def identify_color(prs: Presentation, rgb_hex: str) -> Optional[str]:
+def identify_color(prs: Presentation, rgb_hex: str) -> str | None:
     """
     Reverse lookup: given "#1B3D6F", find if it matches a theme color.
 

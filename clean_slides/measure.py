@@ -5,14 +5,14 @@ Both ColumnSizer and LayoutVerifier need to compute cell content heights
 and available text widths. This module centralises that logic.
 """
 
-from typing import List
+from __future__ import annotations
 
 from .constants import BULLET_MARGINS, Fonts, FontSizes
 from .content import Paragraph
 from .text_metrics import EMU_PER_PT, TextMetrics
 
 
-def column_right_pads(col_count: int, pad_top: int, has_row_header: bool) -> List[int]:
+def column_right_pads(col_count: int, pad_top: int, has_row_header: bool) -> list[int]:
     """Right-side padding per grid column.
 
     This value is subtracted from the cell width when creating the text box. It
@@ -31,7 +31,7 @@ def column_right_pads(col_count: int, pad_top: int, has_row_header: bool) -> Lis
     col_gap = pad_top * 2
     row_header_gap = pad_top * 3
 
-    pads: List[int] = []
+    pads: list[int] = []
     for c in range(col_count):
         if c == col_count - 1:
             pads.append(0)
@@ -47,7 +47,7 @@ def textbox_width(col_width: int, right_pad: int) -> int:
     return max(col_width - right_pad, 0)
 
 
-def should_use_line_breaks(paragraphs: List[Paragraph]) -> bool:
+def should_use_line_breaks(paragraphs: list[Paragraph]) -> bool:
     """True when paragraphs should render as ``<a:br>`` breaks.
 
     Rule: when a cell contains multiple level-0 paragraphs (header-like stacked
@@ -99,7 +99,7 @@ def paragraph_height(
 
 
 def cell_content_height(
-    paragraphs: List[Paragraph],
+    paragraphs: list[Paragraph],
     col_width: int,
     metrics: TextMetrics,
     pad_top: int = 0,

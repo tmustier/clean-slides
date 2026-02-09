@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
+from typing import ClassVar
 
 from lxml import etree
 from pptx import Presentation
@@ -25,7 +26,7 @@ def _generate_pptx(yaml_content: str) -> Path:
 
         # Build a minimal argparse Namespace
         class Args:
-            input = [str(yaml_path)]
+            input: ClassVar[list[str]] = [str(yaml_path)]
             output = str(out_path)
             template = None
             config = None

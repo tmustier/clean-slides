@@ -1,7 +1,9 @@
 """Table specification and layout dataclasses."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union
+from typing import Any, TypedDict, Union
 
 from typing_extensions import TypeGuard
 
@@ -20,7 +22,7 @@ from .icons import (
 is_icon_cell = _is_icon_cell
 icon_cell_value = _icon_cell_value
 
-Box = Tuple[int, int, int, int]  # x, y, w, h in EMU
+Box = tuple[int, int, int, int]  # x, y, w, h in EMU
 
 
 # ---------------------------------------------------------------------------
@@ -35,15 +37,15 @@ class CellOverride:
     Fields that are ``None`` are not overridden (cell keeps its default).
     """
 
-    align: Optional[str] = None  # "l", "ctr", "r"
-    anchor: Optional[str] = None  # "t", "ctr", "b"
-    bold: Optional[bool] = None
-    color: Optional[str] = None
-    size: Optional[int] = None  # pt
-    font: Optional[str] = None
+    align: str | None = None  # "l", "ctr", "r"
+    anchor: str | None = None  # "t", "ctr", "b"
+    bold: bool | None = None
+    color: str | None = None
+    size: int | None = None  # pt
+    font: str | None = None
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "CellOverride":
+    def from_dict(cls, data: dict[str, Any]) -> CellOverride:
         raw_size = data.get("size")
         return cls(
             align=str(data["align"]) if "align" in data else None,
@@ -86,24 +88,24 @@ def _stringify_keys(value: dict[Any, Any]) -> dict[str, Any]:
     return {str(k): v for k, v in value.items()}
 
 
-def _as_str_list(value: object) -> Optional[List[str]]:
+def _as_str_list(value: object) -> list[str] | None:
     if not _is_list(value):
         return None
     return [str(item) for item in value]
 
 
-def _as_any_list(value: object) -> Optional[List[Any]]:
+def _as_any_list(value: object) -> list[Any] | None:
     """Like ``_as_str_list`` but preserves dicts/lists for rich content."""
     if not _is_list(value):
         return None
     return list(value)
 
 
-def _as_float_list(value: object) -> Optional[List[float]]:
+def _as_float_list(value: object) -> list[float] | None:
     if not _is_list(value):
         return None
 
-    out: List[float] = []
+    out: list[float] = []
     for item in value:
         try:
             out.append(float(item))
@@ -112,11 +114,11 @@ def _as_float_list(value: object) -> Optional[List[float]]:
     return out
 
 
-def _as_cell_grid(value: object) -> Optional[List[List[Any]]]:
+def _as_cell_grid(value: object) -> list[list[Any]] | None:
     if not _is_list(value):
         return None
 
-    grid: List[List[Any]] = []
+    grid: list[list[Any]] = []
     for row in value:
         if _is_list(row):
             grid.append(list(row))
@@ -162,7 +164,7 @@ class ContentArea:
     height: int
 
     @classmethod
-    def from_layout(cls, layout: str = "default") -> "ContentArea":
+    def from_layout(cls, layout: str = "default") -> ContentArea:
         """Build a content area from a named layout preset.
 
         For template-specific layouts (e.g. "3/4", "Contrast 1/3"), prefer
@@ -249,24 +251,24 @@ class TableSpec:
     has_col_header: bool = True
     has_row_header: bool = False
 
-    col_headers: Optional[List[str]] = None
-    col_superheaders: Optional[List[ColSuperHeader]] = None
-    row_header_col_header: Optional[str] = None  # col header for the row-header column
-    row_headers: Optional[List[Any]] = None
-    cells: Optional[List[List[Any]]] = None
+    col_headers: list[str] | None = None
+    col_superheaders: list[ColSuperHeader] | None = None
+    row_header_col_header: str | None = None  # col header for the row-header column
+    row_headers: list[Any] | None = None
+    cells: list[list[Any]] | None = None
 
-    groups: Optional[List[RowGroup]] = None  # superheader groups
+    groups: list[RowGroup] | None = None  # superheader groups
 
-    col_widths: Union[None, str, List[float]] = None  # None (auto) | "equal" | list of floats
+    col_widths: Union[None, str, list[float]] = None  # None (auto) | "equal" | list of floats
     body_default_lvl: int = 0
     parse_bullets: bool = True
 
     # Header colors — defaults come from template-config.yaml default_colors section.
     # Individual specs can override per table.
-    col_header_color: Optional[str] = None
-    col_superheader_color: Optional[str] = None
-    row_header_color: Optional[str] = None
-    row_superheader_color: Optional[str] = None
+    col_header_color: str | None = None
+    col_superheader_color: str | None = None
+    row_header_color: str | None = None
+    row_superheader_color: str | None = None
 
     @property
     def effective_col_header_color(self) -> str:
@@ -285,18 +287,18 @@ class TableSpec:
         return self.row_superheader_color or DefaultColors.ROW_SUPERHEADER
 
     # Row / column overrides — keyed by body-row or body-column index
-    row_overrides: Dict[int, CellOverride] = field(
+    row_overrides: dict[int, CellOverride] = field(
         default_factory=lambda: dict[int, CellOverride]()
     )
-    col_overrides: Dict[int, CellOverride] = field(
+    col_overrides: dict[int, CellOverride] = field(
         default_factory=lambda: dict[int, CellOverride]()
     )
 
     # Icon indicators (traffic lights, RAG, etc.)
-    icons: Optional[IconSet] = None
+    icons: IconSet | None = None
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TableSpec":
+    def from_dict(cls, data: dict[str, Any]) -> TableSpec:
         raw_table: object = data.get("table", {})
         table: dict[str, Any] = _stringify_keys(raw_table) if _is_dict(raw_table) else {}
 
@@ -401,8 +403,8 @@ class TableSpec:
         cls,
         table: dict[str, Any],
         raw_groups: list[Any],
-        data: Optional[dict[str, Any]] = None,
-    ) -> "TableSpec":
+        data: dict[str, Any] | None = None,
+    ) -> TableSpec:
         """Parse row_groups into a flat cell grid + group metadata."""
         num_cols_raw: object = table.get("cols")
         if num_cols_raw is None:
@@ -413,8 +415,8 @@ class TableSpec:
 
         col_superheaders = cls._parse_col_superheaders(table)
 
-        groups: List[RowGroup] = []
-        all_rows: List[List[Any]] = []
+        groups: list[RowGroup] = []
+        all_rows: list[list[Any]] = []
 
         for group in raw_groups:
             if not _is_dict(group):
@@ -424,7 +426,7 @@ class TableSpec:
             header_raw: object = g.get("header", "")
             rows_raw: object = g.get("rows", [])
 
-            group_rows: List[List[Any]] = []
+            group_rows: list[list[Any]] = []
             if _is_list(rows_raw):
                 for row in rows_raw:
                     if _is_list(row):
@@ -511,7 +513,7 @@ class TableSpec:
         return 1 if self.has_row_header else 0
 
     @staticmethod
-    def _parse_column_widths(table: dict[str, Any]) -> Union[None, str, List[float]]:
+    def _parse_column_widths(table: dict[str, Any]) -> Union[None, str, list[float]]:
         """Parse ``column_widths`` from YAML.
 
         Returns:
@@ -527,7 +529,7 @@ class TableSpec:
         return _as_float_list(raw)
 
     @staticmethod
-    def _parse_icons(data: dict[str, Any]) -> Optional[IconSet]:
+    def _parse_icons(data: dict[str, Any]) -> IconSet | None:
         """Parse top-level ``icons`` config."""
         raw: object = data.get("icons")
         if not _is_dict(raw):
@@ -558,12 +560,12 @@ class TableSpec:
         return colors
 
     @staticmethod
-    def _parse_col_superheaders(table: dict[str, Any]) -> Optional[List[ColSuperHeader]]:
+    def _parse_col_superheaders(table: dict[str, Any]) -> list[ColSuperHeader] | None:
         raw: object = table.get("col_superheaders")
         if not _is_list(raw) or not raw:
             return None
 
-        headers: List[ColSuperHeader] = []
+        headers: list[ColSuperHeader] = []
         for item in raw:
             if not _is_dict(item):
                 continue
@@ -584,8 +586,8 @@ class TableSpec:
 # ---------------------------------------------------------------------------
 
 
-def _cell_matrix() -> List[List[Box]]:
-    cells: List[List[Box]] = []
+def _cell_matrix() -> list[list[Box]]:
+    cells: list[list[Box]] = []
     return cells
 
 
@@ -593,13 +595,13 @@ def _cell_matrix() -> List[List[Box]]:
 class TableLayout:
     """Computed layout information for a table."""
 
-    col_widths: List[int]
-    row_heights: List[int]  # one per grid row (header + all sub-rows)
+    col_widths: list[int]
+    row_heights: list[int]  # one per grid row (header + all sub-rows)
     header_font_size: int  # 1/100 pt
     body_font_size: int  # 1/100 pt
     pad_top: int
     pad_bottom: int
-    cells: List[List[Box]] = field(default_factory=_cell_matrix)
+    cells: list[list[Box]] = field(default_factory=_cell_matrix)
 
     def cell_box(self, r: int, c: int) -> Box:
         return self.cells[r][c]

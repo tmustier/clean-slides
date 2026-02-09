@@ -5,8 +5,10 @@ Determines column widths (by longest word + bullet margins) and row
 heights (equal body rows, header sized by content).  Warns on overflow.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Any, List, Optional, Tuple
+from typing import Any
 
 from typing_extensions import TypeGuard
 
@@ -44,7 +46,7 @@ class FontConfig:
     body_size_pt: int
     header_font: str
     header_size_pt: int
-    row_superheader_size_pt: Optional[int] = None  # defaults to header_size_pt
+    row_superheader_size_pt: int | None = None  # defaults to header_size_pt
 
     @property
     def effective_row_superheader_size_pt(self) -> int:
@@ -70,8 +72,8 @@ class ColumnSizer:
         metrics: TextMetrics,
         fonts: FontConfig,
         pad_top: int = 0,
-    ) -> Tuple[List[int], List[SizingWarning]]:
-        warnings: List[SizingWarning] = []
+    ) -> tuple[list[int], list[SizingWarning]]:
+        warnings: list[SizingWarning] = []
         col_count = spec.num_cols + (1 if spec.has_row_header else 0)
 
         # Right padding per column (inter-column gap). Renderer subtracts this
@@ -179,10 +181,10 @@ class ColumnSizer:
         area_width: int,
         metrics: TextMetrics,
         fonts: FontConfig,
-        warnings: List[SizingWarning],
-    ) -> List[int]:
+        warnings: list[SizingWarning],
+    ) -> list[int]:
         """Minimum width per column so the longest word fits."""
-        mins: List[int] = []
+        mins: list[int] = []
 
         if spec.has_row_header:
             mins.append(
@@ -212,7 +214,7 @@ class ColumnSizer:
         area_width: int,
         metrics: TextMetrics,
         fonts: FontConfig,
-        warnings: List[SizingWarning],
+        warnings: list[SizingWarning],
     ) -> int:
         """Min width for the row-header / superheader column.
 
@@ -385,10 +387,7 @@ class ColumnSizer:
         """Return True if *col_idx* contains at least one icon cell."""
         if not spec.icons:
             return False
-        for row in spec.cells or []:
-            if col_idx < len(row) and is_icon_cell(row[col_idx]):
-                return True
-        return False
+        return any(col_idx < len(row) and is_icon_cell(row[col_idx]) for row in spec.cells or [])
 
     def _max_widths(
         self,
@@ -396,7 +395,7 @@ class ColumnSizer:
         area_width: int,
         metrics: TextMetrics,
         fonts: FontConfig,
-    ) -> List[int]:
+    ) -> list[int]:
         """Capped no-wrap width per column (used by the 'default' algorithm).
 
         The width each column would need if no text wrapping occurred at all,
@@ -411,7 +410,7 @@ class ColumnSizer:
         col_count = spec.num_cols + (1 if spec.has_row_header else 0)
         body_cap = int(area_width / max(col_count, 1) * 1.5)
 
-        maxes: List[int] = []
+        maxes: list[int] = []
 
         if spec.has_row_header:
             # Row header: use natural no-wrap width (usually short labels).
@@ -460,26 +459,26 @@ class ColumnSizer:
 
         return maxes
 
-    def _column_weights(self, spec: TableSpec, col_count: int) -> List[float]:
+    def _column_weights(self, spec: TableSpec, col_count: int) -> list[float]:
         """Return weights for distributing slack across columns.
 
         Used by ``column_widths: equal`` and ``column_widths: [...]`` modes.
         """
         cw: object = spec.col_widths
         if isinstance(cw, list):
-            weights: List[float] = [float(v) for v in cw]
+            weights: list[float] = [float(v) for v in cw]
             if spec.has_row_header:
                 if len(weights) == col_count:
                     return weights
                 if len(weights) == spec.num_cols:
-                    return [0.0] + weights
+                    return [0.0, *weights]
             else:
                 if len(weights) == col_count:
                     return weights
 
         # Equal: all body columns get the same weight.
         # Row header gets a small weight for breathing room.
-        weights: List[float] = []
+        weights: list[float] = []
         if spec.has_row_header:
             weights.append(0.5)
         for _ in range(spec.num_cols):
@@ -487,7 +486,7 @@ class ColumnSizer:
         return weights
 
     @staticmethod
-    def _distribute(min_widths: List[int], extra: int, weights: List[float]) -> List[int]:
+    def _distribute(min_widths: list[int], extra: int, weights: list[float]) -> list[int]:
         total_weight = sum(weights) or 1.0
         widths = min_widths[:]
         allocated = 0
@@ -514,14 +513,14 @@ class RowSizer:
     def size(
         self,
         spec: TableSpec,
-        col_widths: List[int],
+        col_widths: list[int],
         area_height: int,
         metrics: TextMetrics,
         fonts: FontConfig,
         pad_top: int,
         pad_bottom: int,
-    ) -> Tuple[List[int], List[SizingWarning]]:
-        warnings: List[SizingWarning] = []
+    ) -> tuple[list[int], list[SizingWarning]]:
+        warnings: list[SizingWarning] = []
         col_offset = spec.col_offset
 
         # Text box widths (renderer subtracts per-column right padding from the
@@ -552,7 +551,7 @@ class RowSizer:
             )
             body_area = 0
 
-        heights: List[int] = []
+        heights: list[int] = []
         if spec.has_col_superheader:
             heights.append(col_super_h)
         if spec.has_col_header:
@@ -562,7 +561,7 @@ class RowSizer:
         body_default = _body_default(spec, fonts)
 
         # Compute required height for each body row
-        required_body: List[int] = []
+        required_body: list[int] = []
         for ri in range(spec.num_rows):
             req = self._body_row_required(
                 spec,
@@ -580,7 +579,7 @@ class RowSizer:
         # Distribute body_area proportionally to required heights
         total_req = sum(required_body) or 1
         min_h = int(TableDefaults.MIN_ROW_HEIGHT)
-        body_heights: List[int] = []
+        body_heights: list[int] = []
         for req in required_body:
             h = max(int(body_area * req / total_req), min_h)
             body_heights.append(h)
@@ -614,7 +613,7 @@ class RowSizer:
                 pad_bottom,
             )
             # For each row, find allocated vs required
-            overflow_cells: List[str] = []
+            overflow_cells: list[str] = []
             for ri, (req, alloc) in enumerate(zip(required_body, body_heights)):
                 if req <= alloc:
                     continue
@@ -663,7 +662,7 @@ class RowSizer:
     def _header_height(
         self,
         spec: TableSpec,
-        col_widths: List[int],
+        col_widths: list[int],
         col_offset: int,
         metrics: TextMetrics,
         fonts: FontConfig,
@@ -708,7 +707,7 @@ class RowSizer:
         self,
         spec: TableSpec,
         body_row: int,
-        col_widths: List[int],
+        col_widths: list[int],
         col_offset: int,
         metrics: TextMetrics,
         hdr_def: Paragraph,
@@ -771,16 +770,16 @@ class RowSizer:
     def _body_cell_heights(
         self,
         spec: TableSpec,
-        text_widths: List[int],
+        text_widths: list[int],
         col_offset: int,
         metrics: TextMetrics,
         hdr_def: Paragraph,
         body_def: Paragraph,
         pt: int,
         pb: int,
-    ) -> List[dict[int, int]]:
+    ) -> list[dict[int, int]]:
         """Return per-cell required heights: list of {col_idx: height} per body row."""
-        result: List[dict[int, int]] = []
+        result: list[dict[int, int]] = []
         for ri in range(spec.num_rows):
             cell_map: dict[int, int] = {}
 
@@ -837,7 +836,7 @@ def _is_dict(value: object) -> TypeGuard[dict[str, Any]]:
     return isinstance(value, dict)
 
 
-def _is_list(value: object) -> TypeGuard[List[Any]]:
+def _is_list(value: object) -> TypeGuard[list[Any]]:
     return isinstance(value, list)
 
 

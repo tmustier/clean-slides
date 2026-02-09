@@ -12,7 +12,8 @@ Progressive disclosure:
 from __future__ import annotations
 
 from collections import Counter
-from typing import Any, List, Mapping, Optional, Protocol, Sequence, Tuple, TypedDict, Union
+from collections.abc import Mapping, Sequence
+from typing import Any, Protocol, TypedDict, Union
 
 from lxml import etree
 from pptx.dml.color import RGBColor
@@ -142,28 +143,28 @@ class ParagraphLike(Protocol):
     def level(self, level: int) -> None: ...
 
     @property
-    def alignment(self) -> Optional[PP_PARAGRAPH_ALIGNMENT]: ...
+    def alignment(self) -> PP_PARAGRAPH_ALIGNMENT | None: ...
 
     @alignment.setter
-    def alignment(self, value: Optional[PP_PARAGRAPH_ALIGNMENT]) -> None: ...
+    def alignment(self, value: PP_PARAGRAPH_ALIGNMENT | None) -> None: ...
 
     @property
-    def space_before(self) -> Optional[Length]: ...
+    def space_before(self) -> Length | None: ...
 
     @space_before.setter
-    def space_before(self, value: Optional[Length]) -> None: ...
+    def space_before(self, value: Length | None) -> None: ...
 
     @property
-    def space_after(self) -> Optional[Length]: ...
+    def space_after(self) -> Length | None: ...
 
     @space_after.setter
-    def space_after(self, value: Optional[Length]) -> None: ...
+    def space_after(self, value: Length | None) -> None: ...
 
     @property
-    def line_spacing(self) -> Optional[Union[int, float, Length]]: ...
+    def line_spacing(self) -> Union[int, float, Length] | None: ...
 
     @line_spacing.setter
-    def line_spacing(self, value: Optional[Union[int, float, Length]]) -> None: ...
+    def line_spacing(self, value: Union[int, float, Length] | None) -> None: ...
 
 
 # ── Run-level overrides ───────────────────────────────────────────────
@@ -285,7 +286,7 @@ def _apply_color(run: RunLike, color: object) -> None:
     run.font.color.rgb = _rgb_from_hex(color)
 
 
-def _normalize_content(content: Any) -> List[Tuple[str, RunOverrides]]:
+def _normalize_content(content: Any) -> list[tuple[str, RunOverrides]]:
     """Normalize content to list of (text, overrides) tuples.
 
     "hello"                              → [("hello", {})]
@@ -302,7 +303,7 @@ def _normalize_content(content: Any) -> List[Tuple[str, RunOverrides]]:
     if not _is_sequence(content):
         return [(str(content), {})]
 
-    result: List[Tuple[str, RunOverrides]] = []
+    result: list[tuple[str, RunOverrides]] = []
     for item in content:
         if isinstance(item, str):
             result.append((item, {}))

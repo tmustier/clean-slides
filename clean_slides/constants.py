@@ -7,7 +7,7 @@ can be refreshed at runtime via :func:`_reload`.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from pptx.dml.color import RGBColor
 from pptx.util import Emu, Inches, Pt
@@ -27,7 +27,7 @@ OOXML_FONT_SCALE = 100  # OOXML stores font sizes in hundredths of a point
 # Helpers
 # ---------------------------------------------------------------------------
 
-_DEFAULT_COLORS: Dict[str, str] = {
+_DEFAULT_COLORS: dict[str, str] = {
     "body_text": "tx1",
     "col_header": "tx1",
     "col_superheader": "tx1",
@@ -38,7 +38,7 @@ _DEFAULT_COLORS: Dict[str, str] = {
 }
 
 
-def _section(config: TemplateConfig, key: str) -> Dict[str, Any]:
+def _section(config: TemplateConfig, key: str) -> dict[str, Any]:
     return config.section(key)
 
 
@@ -52,7 +52,7 @@ def _rgb(value: str) -> RGBColor:
     return RGBColor(r, g, b)
 
 
-def _rgb_optional(value: object) -> Optional[RGBColor]:
+def _rgb_optional(value: object) -> RGBColor | None:
     if not value:
         return None
     return _rgb(str(value))
@@ -162,20 +162,20 @@ class TableDefaults:
 
 # Module-level mutable state (rewritten by _reload).
 # pyright: reportConstantRedefinition=false
-MOON_COLORS: Dict[str, Optional[RGBColor]] = {}
-MOON_COLORS_HEX: Dict[str, Optional[str]] = {}
-MOON_FILLS: Dict[str, int] = {}
-MOON_ARC_ADJUSTMENTS: Dict[int, Optional[Tuple[str, ...]]] = {}
+MOON_COLORS: dict[str, RGBColor | None] = {}
+MOON_COLORS_HEX: dict[str, str | None] = {}
+MOON_FILLS: dict[str, int] = {}
+MOON_ARC_ADJUSTMENTS: dict[int, tuple[str, ...] | None] = {}
 MOON_SIZE_EMU: int = 0
-MOON_GROUP: Dict[str, Any] = {}
+MOON_GROUP: dict[str, Any] = {}
 ICON_DEFAULT_SIZE_EMU: int = 0
 
-BULLET_LEVELS: list[Dict[str, Any]] = []
-BULLET_CHARS: Dict[int, str] = {}
-BULLET_MARGINS: Dict[int, Tuple[int, int, float]] = {}
+BULLET_LEVELS: list[dict[str, Any]] = []
+BULLET_CHARS: dict[int, str] = {}
+BULLET_MARGINS: dict[int, tuple[int, int, float]] = {}
 BULLET_DEF_TAB_SZ_EMU: int = 0
-BULLET_BU_FONT: Dict[str, Any] = {}
-BULLET_DEF_RPR: Dict[str, Any] = {}
+BULLET_BU_FONT: dict[str, Any] = {}
+BULLET_DEF_RPR: dict[str, Any] = {}
 
 
 # ============================================================================
@@ -183,7 +183,7 @@ BULLET_DEF_RPR: Dict[str, Any] = {}
 # ============================================================================
 
 
-def reload_constants(config: Optional[TemplateConfig] = None) -> None:
+def reload_constants(config: TemplateConfig | None = None) -> None:
     """(Re-)initialize all constants from *config*.
 
     Called once at module load and again by

@@ -5,8 +5,9 @@ Checks a computed TableLayout for overlap, boundary violations, and
 text-fit issues.  Returns a LayoutReport with categorised warnings.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import List
 
 from .constants import OOXML_FONT_SCALE, DefaultColors, Fonts
 from .content import Paragraph, normalize_cell
@@ -33,14 +34,14 @@ class LayoutIssue:
     details: dict[str, object]
 
 
-def _issue_list() -> List[LayoutIssue]:
-    issues: List[LayoutIssue] = []
+def _issue_list() -> list[LayoutIssue]:
+    issues: list[LayoutIssue] = []
     return issues
 
 
 @dataclass
 class LayoutReport:
-    issues: List[LayoutIssue] = field(default_factory=_issue_list)
+    issues: list[LayoutIssue] = field(default_factory=_issue_list)
 
     def add(self, issue: LayoutIssue) -> None:
         self.issues.append(issue)
@@ -57,7 +58,7 @@ class LayoutReport:
         infos = sum(1 for i in self.issues if i.severity == "info")
         if not (errors or warnings or infos):
             return "OK"
-        parts: List[str] = []
+        parts: list[str] = []
         if errors:
             parts.append(f"{errors} error(s)")
         if warnings:
@@ -109,8 +110,8 @@ class LayoutVerifier:
 
     # -- overlap --
 
-    def _check_overlaps(self) -> List[LayoutIssue]:
-        issues: List[LayoutIssue] = []
+    def _check_overlaps(self) -> list[LayoutIssue]:
+        issues: list[LayoutIssue] = []
         cells = self.layout.cells
         for r1, row in enumerate(cells):
             for c1, (x1, y1, w1, h1) in enumerate(row):
@@ -134,8 +135,8 @@ class LayoutVerifier:
 
     # -- boundary --
 
-    def _check_boundaries(self) -> List[LayoutIssue]:
-        issues: List[LayoutIssue] = []
+    def _check_boundaries(self) -> list[LayoutIssue]:
+        issues: list[LayoutIssue] = []
         a = self.area
         for r, row in enumerate(self.layout.cells):
             for c, (x, y, w, h) in enumerate(row):
@@ -158,8 +159,8 @@ class LayoutVerifier:
 
     # -- text fit --
 
-    def _check_text_fit(self, spec: TableSpec, metrics: TextMetrics) -> List[LayoutIssue]:
-        issues: List[LayoutIssue] = []
+    def _check_text_fit(self, spec: TableSpec, metrics: TextMetrics) -> list[LayoutIssue]:
+        issues: list[LayoutIssue] = []
 
         row_offset = spec.row_offset
         col_offset = spec.col_offset

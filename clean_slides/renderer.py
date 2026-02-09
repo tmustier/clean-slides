@@ -10,7 +10,8 @@ Paragraph level controls bullet style; run properties control font.
 from __future__ import annotations
 
 import re
-from typing import Callable, List, Optional, Protocol, Sequence
+from collections.abc import Sequence
+from typing import Callable, Protocol
 
 from lxml import etree
 from pptx.oxml.shapes.groupshape import CT_GroupShape
@@ -80,14 +81,14 @@ class TableRenderer:
 
     spTree: CT_GroupShape
     next_id: Callable[[], int]
-    _col_right_pads: List[int]
-    _slide_part: Optional[_SlidePart]
+    _col_right_pads: list[int]
+    _slide_part: _SlidePart | None
 
     def __init__(
         self,
         spTree: CT_GroupShape,
         next_shape_id_fn: Callable[[], int],
-        slide_part: Optional[_SlidePart] = None,
+        slide_part: _SlidePart | None = None,
     ) -> None:
         self.spTree = spTree
         self.next_id = next_shape_id_fn
@@ -336,9 +337,9 @@ class TableRenderer:
     # -----------------------------------------------------------------------
 
     @staticmethod
-    def _apply_override(paragraphs: List[Paragraph], ov: CellOverride) -> List[Paragraph]:
+    def _apply_override(paragraphs: list[Paragraph], ov: CellOverride) -> list[Paragraph]:
         """Return a copy of *paragraphs* with override formatting applied."""
-        out: List[Paragraph] = []
+        out: list[Paragraph] = []
         for p in paragraphs:
             out.append(
                 Paragraph(
@@ -492,7 +493,7 @@ class TableRenderer:
     def _add_cell(
         self,
         box: Box,
-        paragraphs: List[Paragraph],
+        paragraphs: list[Paragraph],
         align: str = "l",
         anchor: str = "t",
         pad_top: int = 0,
@@ -546,7 +547,7 @@ class TableRenderer:
         return sp
 
     def _append_paragraphs_as_br(
-        self, txBody: etree._Element, paragraphs: List[Paragraph], align: str = "l"
+        self, txBody: etree._Element, paragraphs: list[Paragraph], align: str = "l"
     ) -> None:
         """Render multiple Paragraph objects as a single <a:p> with <a:br> between them.
 
@@ -660,7 +661,7 @@ class TableRenderer:
         italic: bool,
         color: str,
         underline: bool,
-        hyperlink: Optional[str] = None,
+        hyperlink: str | None = None,
     ) -> None:
         r = etree.SubElement(p, f"{{{NS_A}}}r")
         attrs: dict[str, str] = {"lang": "en-US", "sz": str(size)}
@@ -801,7 +802,7 @@ class TableRenderer:
             self._append_paragraph(txBody, para, align="l")
             self.spTree.append(sp)
 
-    def render_sidebar(self, paragraphs: List[Paragraph], area: ContentArea) -> None:
+    def render_sidebar(self, paragraphs: list[Paragraph], area: ContentArea) -> None:
         """Render a list of paragraphs into a sidebar content area."""
         sp = self._make_textbox_sp(area.x, area.y, area.width, area.height)
         txBody = sp.find(f".//{{{NS_P}}}txBody")

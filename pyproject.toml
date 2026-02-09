@@ -30,7 +30,7 @@ dev = [
     "black",
     "ruff",
     "pre-commit",
-    "pyright==1.1.408",
+    "pyright>=1.1.408",
     "python-pptx-stubs>=1.0.2.post1",
     "lxml-stubs>=0.5.1",
     "types-PyYAML",
@@ -55,7 +55,30 @@ target-version = ["py39"]
 
 [tool.ruff]
 line-length = 100
+target-version = "py39"
 
 [tool.ruff.lint]
-select = ["E", "F", "I"]
-ignore = ["E501"]
+select = [
+    "E", "W",   # pycodestyle
+    "F",         # pyflakes
+    "I",         # isort
+    "B",         # flake8-bugbear — catches real bugs
+    "UP",        # pyupgrade — modernise syntax to 3.9+
+    "SIM",       # flake8-simplify
+    "C4",        # flake8-comprehensions
+    "PIE",       # misc useful lints
+    "RUF",       # ruff-specific rules
+    "PT",        # flake8-pytest-style
+]
+ignore = [
+    "E501",      # line length — Black handles this
+    "UP007",     # X | Y unions — needs 3.10+, we target 3.9
+    "SIM108",    # ternary over if/else — often less readable
+    "RUF001",    # ambiguous unicode — intentional typographic chars in docstrings
+    "RUF002",    # ambiguous unicode in docstrings
+    "RUF003",    # ambiguous unicode in comments
+    "PT009",     # unittest-style assertions — existing tests use unittest.TestCase
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["clean_slides"]

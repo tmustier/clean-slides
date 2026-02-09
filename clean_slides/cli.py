@@ -47,9 +47,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Iterable
 from copy import deepcopy
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, List, Optional, Protocol, Tuple, Union, cast
+from typing import TYPE_CHECKING, Any, Protocol, Union, cast
 
 import yaml
 from pptx import Presentation
@@ -62,6 +63,8 @@ from typing_extensions import TypeGuard
 
 if TYPE_CHECKING:
     from .editor import ParagraphSpec
+
+import contextlib
 
 from .constants import EMU_PER_INCH, Fonts, FontSizes, Layout, TableDefaults
 from .metadata import fill_slide_metadata
@@ -86,7 +89,7 @@ def _has_to_dict(obj: object) -> TypeGuard[_ToDict]:
     return hasattr(obj, "to_dict")
 
 
-def _is_object_list(value: object) -> TypeGuard[List[object]]:
+def _is_object_list(value: object) -> TypeGuard[list[object]]:
     return isinstance(value, list)
 
 
@@ -97,10 +100,7 @@ def _cells_can_provide_row_headers(raw_cells: object) -> bool:
     rows = cast(list[object], raw_cells)
     if len(rows) == 0:
         return False
-    for row in rows:
-        if not isinstance(row, list) or len(cast(list[object], row)) < 2:
-            return False
-    return True
+    return all(not (not isinstance(row, list) or len(cast(list[object], row)) < 2) for row in rows)
 
 
 def _is_str_object_dict(value: object) -> TypeGuard[dict[str, object]]:
@@ -116,8 +116,8 @@ class _FileArgs(Protocol):
 
 
 class _ShowArgs(_FileArgs, Protocol):
-    slide: Optional[str]
-    shape: Optional[str]
+    slide: str | None
+    shape: str | None
 
 
 class _SlideArgs(_FileArgs, Protocol):
@@ -137,44 +137,44 @@ class _EditArgs(_FileArgs, Protocol):
     slide: str
     shape: str
     text: str
-    out: Optional[str]
+    out: str | None
 
 
 class _BatchArgs(_FileArgs, Protocol):
     edits: str
-    out: Optional[str]
+    out: str | None
 
 
 class _AddSlideArgs(_FileArgs, Protocol):
     layout: str
-    at: Optional[int]
-    out: Optional[str]
+    at: int | None
+    out: str | None
 
 
 class _DeleteSlideArgs(_FileArgs, Protocol):
     slide: str
     confirm: bool
-    out: Optional[str]
+    out: str | None
 
 
 class _DeleteShapeArgs(_FileArgs, Protocol):
     slide: str
     shape: str
-    out: Optional[str]
+    out: str | None
 
 
 class _InsertArgs(_FileArgs, Protocol):
     source: str
-    at: Optional[int]
-    slides: Optional[str]
-    out: Optional[str]
+    at: int | None
+    slides: str | None
+    out: str | None
 
 
 class _RenderArgs(_FileArgs, Protocol):
     slides: str
     dpi: int
-    out: Optional[str]
-    engine: Optional[str]
+    out: str | None
+    engine: str | None
 
 
 class _CropArgs(Protocol):
@@ -183,46 +183,46 @@ class _CropArgs(Protocol):
     top: float
     right: float
     bottom: float
-    out: Optional[str]
+    out: str | None
 
 
 class _InputArgs(Protocol):
-    input: List[str]
+    input: list[str]
 
 
 class _GenerateArgs(_InputArgs, Protocol):
-    output: Optional[str]
-    template: Optional[str]
-    config: Optional[str]
-    slide_index: Optional[int]
+    output: str | None
+    template: str | None
+    config: str | None
+    slide_index: int | None
     keep_existing: bool
     detail: bool
 
 
 class _VerifyArgs(_InputArgs, Protocol):
     detail: bool
-    json: Optional[str]
-    config: Optional[str]
+    json: str | None
+    config: str | None
 
 
 class _ScreenshotArgs(_InputArgs, Protocol):
-    output_dir: Optional[str]
+    output_dir: str | None
     slide: int
-    soffice: Optional[str]
+    soffice: str | None
 
 
 class _ValidateArgs(_InputArgs, Protocol):
-    config: Optional[str]
+    config: str | None
 
 
 class _InitArgs(Protocol):
-    template: Optional[str]
-    output: Optional[str]
+    template: str | None
+    output: str | None
 
 
 class _InitConfigArgs(Protocol):
     file: str
-    output: Optional[str]
+    output: str | None
 
 
 # ── Project-level auto-discovery ───────────────────────────────────────
@@ -232,7 +232,7 @@ _CONFIG_NAME = "config.yaml"
 _TEMPLATE_NAME = "template.pptx"
 
 
-def _discover_project_dir() -> Optional[Path]:
+def _discover_project_dir() -> Path | None:
     """Walk from CWD to filesystem root looking for a `.clean-slides/` directory."""
     cur = Path.cwd().resolve()
     for parent in [cur, *cur.parents]:
@@ -242,7 +242,7 @@ def _discover_project_dir() -> Optional[Path]:
     return None
 
 
-def _discover_config() -> Optional[Path]:
+def _discover_config() -> Path | None:
     """Return the project config path if auto-discovered."""
     proj = _discover_project_dir()
     if proj is not None:
@@ -252,7 +252,7 @@ def _discover_config() -> Optional[Path]:
     return None
 
 
-def _discover_template() -> Optional[Path]:
+def _discover_template() -> Path | None:
     """Return the project template path if auto-discovered."""
     proj = _discover_project_dir()
     if proj is not None:
@@ -262,7 +262,7 @@ def _discover_template() -> Optional[Path]:
     return None
 
 
-def _apply_config(config_path: Optional[str]) -> None:
+def _apply_config(config_path: str | None) -> None:
     """Load template config — explicit path, auto-discovered, or built-in defaults."""
     if config_path is not None:
         set_template_config(Path(config_path))
@@ -281,7 +281,7 @@ def _open(path: Union[str, Path]) -> PresentationObj:
 def _get_slide(prs: PresentationObj, num: Union[str, int]) -> Slide:
     """Get slide by 1-indexed number."""
     idx = int(num) - 1
-    slides: List[Slide] = list(prs.slides)
+    slides: list[Slide] = list(prs.slides)
     if idx < 0 or idx >= len(slides):
         print(f"Error: slide {num} out of range (1-{len(slides)})", file=sys.stderr)
         sys.exit(1)
@@ -292,7 +292,7 @@ def _find_shape(slide: Slide, identifier: str) -> BaseShape:
     """Find shape by index (int) or name (substring match)."""
     try:
         idx = int(identifier)
-        shapes: List[BaseShape] = list(slide.shapes)
+        shapes: list[BaseShape] = list(slide.shapes)
         if 0 <= idx < len(shapes):
             return shapes[idx]
         for s in shapes:
@@ -317,7 +317,7 @@ def _find_layout(prs: PresentationObj, identifier: str, fallback: bool = False) 
     """
     try:
         idx = int(identifier)
-        layouts: List[SlideLayout] = list(prs.slide_layouts)
+        layouts: list[SlideLayout] = list(prs.slide_layouts)
         if 0 <= idx < len(layouts):
             return layouts[idx]
     except ValueError:
@@ -348,13 +348,13 @@ def _find_layout(prs: PresentationObj, identifier: str, fallback: bool = False) 
     sys.exit(1)
 
 
-def _try_find_layout(prs: PresentationObj, name: str) -> Optional[SlideLayout]:
+def _try_find_layout(prs: PresentationObj, name: str) -> SlideLayout | None:
     """Best-effort lookup by layout name (case-insensitive).
 
     Returns None if no match.
     """
     name_lower = name.lower()
-    layouts: List[SlideLayout] = list(prs.slide_layouts)
+    layouts: list[SlideLayout] = list(prs.slide_layouts)
 
     for layout in layouts:
         if layout.name and layout.name.lower() == name_lower:
@@ -367,7 +367,7 @@ def _try_find_layout(prs: PresentationObj, name: str) -> Optional[SlideLayout]:
     return None
 
 
-def _content_area_from_layout(slide_layout: SlideLayout) -> Optional["ContentArea"]:
+def _content_area_from_layout(slide_layout: SlideLayout) -> ContentArea | None:
     """Extract the primary content area from a slide layout.
 
     Finds the best OBJECT / BODY placeholder to use as the table content
@@ -387,7 +387,7 @@ def _content_area_from_layout(slide_layout: SlideLayout) -> Optional["ContentAre
     footer_y = int(Layout.FOOTER_LINE_Y)
 
     # Collect candidate content placeholders.
-    candidates: list[tuple[int, int, int, "ContentArea"]] = []
+    candidates: list[tuple[int, int, int, ContentArea]] = []
     for ph in slide_layout.placeholders:
         pf = ph.placeholder_format
         type_name = str(pf.type).split("(")[0].strip() if pf.type is not None else ""
@@ -415,7 +415,7 @@ def _content_area_from_layout(slide_layout: SlideLayout) -> Optional["ContentAre
     return large[0][2]
 
 
-def _sidebar_content_area(slide_layout: SlideLayout) -> Optional["ContentArea"]:
+def _sidebar_content_area(slide_layout: SlideLayout) -> ContentArea | None:
     """Extract the secondary (sidebar) content area from a split slide layout.
 
     Returns the ContentArea for the right-side placeholder in layouts like
@@ -450,7 +450,7 @@ def _json_out(obj: object) -> None:
     if _has_to_dict(obj):
         payload = obj.to_dict()
     elif _is_object_list(obj):
-        items: List[object] = []
+        items: list[object] = []
         for x_obj in obj:
             if _has_to_dict(x_obj):
                 items.append(x_obj.to_dict())
@@ -463,7 +463,7 @@ def _json_out(obj: object) -> None:
     print(json.dumps(payload, indent=2, ensure_ascii=False, default=str))
 
 
-def _shape_text(shape: BaseShape) -> Optional[str]:
+def _shape_text(shape: BaseShape) -> str | None:
     """Current text from a shape."""
     if not _is_text_shape(shape):
         return None
@@ -476,7 +476,7 @@ def _shape_text(shape: BaseShape) -> Optional[str]:
 
 
 RunOverridesMap = dict[str, object]
-TextRun = Tuple[str, RunOverridesMap]
+TextRun = tuple[str, RunOverridesMap]
 
 
 def _coerce_overrides(value: object) -> RunOverridesMap:
@@ -485,7 +485,7 @@ def _coerce_overrides(value: object) -> RunOverridesMap:
     return {}
 
 
-def _parse_text_arg(text: object) -> List[TextRun]:
+def _parse_text_arg(text: object) -> list[TextRun]:
     """
     Parse text argument into list of (text, overrides) tuples.
 
@@ -495,7 +495,7 @@ def _parse_text_arg(text: object) -> List[TextRun]:
         [["Bold ", {"bold": true}], [" normal"]]    → JSON runs
     """
 
-    runs: Optional[List[object]] = None
+    runs: list[object] | None = None
 
     if _is_object_list(text):
         runs = text
@@ -509,7 +509,7 @@ def _parse_text_arg(text: object) -> List[TextRun]:
             runs = parsed
 
     if runs is not None:
-        result: List[TextRun] = []
+        result: list[TextRun] = []
 
         for item in runs:
             if isinstance(item, str):
@@ -532,7 +532,7 @@ def _parse_text_arg(text: object) -> List[TextRun]:
     text_str = text if isinstance(text, str) else str(text)
     normalized = text_str.replace("\n", "\\n")
 
-    result: List[TextRun] = []
+    result: list[TextRun] = []
     lines = normalized.split("\\n")
     for i, line in enumerate(lines):
         if i > 0:
@@ -542,7 +542,7 @@ def _parse_text_arg(text: object) -> List[TextRun]:
     return result
 
 
-def _expand_newlines(result: List[TextRun], text: str, opts: RunOverridesMap) -> None:
+def _expand_newlines(result: list[TextRun], text: str, opts: RunOverridesMap) -> None:
     """Split text on newlines, inserting line break markers."""
     parts = text.split("\n")
     for i, part in enumerate(parts):
@@ -568,7 +568,7 @@ def _is_paragraphs_format(text_arg: object) -> bool:
     return False
 
 
-def _parse_paragraphs_arg(text_arg: object) -> List[ParagraphSpec]:
+def _parse_paragraphs_arg(text_arg: object) -> list[ParagraphSpec]:
     """Parse a multi-paragraph spec."""
 
     parsed: object = text_arg
@@ -582,7 +582,7 @@ def _parse_paragraphs_arg(text_arg: object) -> List[ParagraphSpec]:
     if not _is_object_list(paragraphs_raw):
         raise ValueError("paragraphs spec missing 'paragraphs' list")
 
-    paragraphs: List[ParagraphSpec] = []
+    paragraphs: list[ParagraphSpec] = []
 
     for p_obj in paragraphs_raw:
         if not _is_str_object_dict(p_obj):
@@ -596,10 +596,8 @@ def _parse_paragraphs_arg(text_arg: object) -> List[ParagraphSpec]:
         if "level" in p_obj:
             level_raw = p_obj["level"]
             if isinstance(level_raw, (int, float, str)) and not isinstance(level_raw, bool):
-                try:
+                with contextlib.suppress(ValueError):
                     para["level"] = int(level_raw)
-                except ValueError:
-                    pass
 
         if "alignment" in p_obj:
             alignment_raw = p_obj["alignment"]
@@ -676,7 +674,7 @@ _SIDEBAR_MIN_PT = 8  # never shrink below this
 
 
 def _warn_sidebar_overflow(
-    paragraphs: List[Any],
+    paragraphs: list[Any],
     area: ContentArea,
     metrics: TextMetrics,
 ) -> None:
@@ -692,7 +690,7 @@ def _warn_sidebar_overflow(
 
 
 def _sidebar_height(
-    paragraphs: List[Any],
+    paragraphs: list[Any],
     area: ContentArea,
     metrics: TextMetrics,
 ) -> int:
@@ -707,7 +705,7 @@ def _sidebar_height(
 
 
 def _shrink_sidebar_to_fit(
-    paragraphs: List[Any],
+    paragraphs: list[Any],
     area: ContentArea,
     metrics: TextMetrics,
 ) -> None:
@@ -796,18 +794,18 @@ def _text_preview(text_arg: object) -> str:
 
     if _is_paragraphs_format(text_arg):
         paras = _parse_paragraphs_arg(text_arg)
-        parts: List[str] = []
+        parts: list[str] = []
 
         for p in paras:
-            lvl = p["level"] if "level" in p else 0
+            lvl = p.get("level", 0)
             prefix = "  " * lvl + ("• " if lvl > 0 else "")
-            runs = p["runs"] if "runs" in p else ""
+            runs = p.get("runs", "")
 
             if isinstance(runs, str):
                 parts.append(f"{prefix}{runs}")
                 continue
 
-            run_texts: List[str] = []
+            run_texts: list[str] = []
             if _is_object_list(runs):
                 for r in runs:
                     if isinstance(r, str):
@@ -826,7 +824,7 @@ def _text_preview(text_arg: object) -> str:
         return " ¶ ".join(parts)
 
     runs = _parse_text_arg(text_arg)
-    parts: List[str] = []
+    parts: list[str] = []
     for text, opts in runs:
         if text == "\n":
             parts.append("\\n")
@@ -931,7 +929,7 @@ def cmd_show(args: _ShowArgs) -> int:
                 break
 
         layout = slide.slide_layout
-        layout_phs: List[str] = []
+        layout_phs: list[str] = []
         for ph in layout.placeholders:
             layout_phs.append(f"ph{ph.placeholder_format.idx}:{ph.name}")
 
@@ -1061,12 +1059,12 @@ def cmd_layouts(args: _FileArgs) -> int:
     footer_y = int(Layout.FOOTER_LINE_Y)
 
     for layout in prs.slide_layouts:
-        structural: List[str] = []
+        structural: list[str] = []
         # (left_emu, width_in, height_avail_in, name)
-        content_phs: List[Tuple[int, float, float, str]] = []
+        content_phs: list[tuple[int, float, float, str]] = []
 
         placeholders = cast(Iterable[LayoutPlaceholder], layout.placeholders)
-        phs: List[LayoutPlaceholder] = sorted(
+        phs: list[LayoutPlaceholder] = sorted(
             placeholders,
             key=lambda p: (int(p.top), int(p.left)),
         )
@@ -1089,7 +1087,7 @@ def cmd_layouts(args: _FileArgs) -> int:
 
         # Sort content areas left-to-right, label primary/secondary
         content_phs.sort(key=lambda p: p[0])
-        areas: List[str] = []
+        areas: list[str] = []
         for idx, (_x, w, h, _name) in enumerate(content_phs):
             label = "primary" if idx == 0 else "secondary"
             areas.append(f"{label} {w:.1f}×{h:.1f}in")
@@ -1208,12 +1206,12 @@ def cmd_batch(args: _BatchArgs) -> int:
 # ============================================================================
 
 
-def _parse_slide_selection(selection: Optional[str], total: int) -> List[int]:
+def _parse_slide_selection(selection: str | None, total: int) -> list[int]:
     """Parse a slide selection string (e.g. "1,3-5") into 1-indexed slide numbers."""
     if not selection:
         return list(range(1, total + 1))
 
-    result: List[int] = []
+    result: list[int] = []
     seen: set[int] = set()
 
     for part in selection.split(","):
@@ -1269,7 +1267,7 @@ def _assert_slide_has_no_external_relationships(slide: Slide) -> None:
 
     spTree = slide.shapes.element
     for el in spTree.iter():
-        for key in el.attrib.keys():
+        for key in el.attrib:
             if str(key).startswith(f"{{{NS_R}}}"):
                 raise ValueError(
                     "source slide contains external relationships (e.g. images/charts/hyperlinks); "
@@ -1324,7 +1322,7 @@ def cmd_add_slide(args: _AddSlideArgs) -> int:
     else:
         final_pos = total_before + 1
 
-    phs: List[str] = [f"{ph.placeholder_format.idx}:{ph.name}" for ph in slide.placeholders]
+    phs: list[str] = [f"{ph.placeholder_format.idx}:{ph.name}" for ph in slide.placeholders]
     print(f'Added slide {final_pos} from layout "{layout.name}"')
     print(f"  Placeholders: {', '.join(phs) if phs else '(none)'}")
     print(f"  Total slides: {total_before + 1}")
@@ -1358,7 +1356,7 @@ def cmd_delete_slide(args: _DeleteSlideArgs) -> int:
 
     # Find relationship id (rId) for this slide part
     slide_part = slide.part
-    rId: Optional[str] = None
+    rId: str | None = None
     for rel_key in prs.part.rels:
         rel = prs.part.rels[rel_key]
         if rel.target_part is slide_part:
@@ -1525,7 +1523,7 @@ YamlDict = dict[str, object]
 
 def load_yaml(path: str) -> YamlDict:
     """Load YAML from disk."""
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(path, encoding="utf-8") as handle:
         parsed: object = yaml.safe_load(handle)
 
     # YAML root must be a mapping for our spec format. If it's not, treat it as
@@ -1544,7 +1542,7 @@ def _to_int(value: object) -> int:
     return int(str(value))
 
 
-def _parse_content_area(data: YamlDict, layout_override: Optional[str] = None) -> ContentArea:
+def _parse_content_area(data: YamlDict, layout_override: str | None = None) -> ContentArea:
     if "content_area" in data:
         area_obj = data.get("content_area")
         area: dict[str, object] = area_obj if _is_str_object_dict(area_obj) else {}
@@ -1596,8 +1594,8 @@ def _parse_options(table: dict[str, object]) -> SolveOptions:
 
 def parse_spec(
     data: YamlDict,
-    layout_override: Optional[str] = None,
-) -> Tuple[TableSpec, ContentArea, SolveOptions, bool]:
+    layout_override: str | None = None,
+) -> tuple[TableSpec, ContentArea, SolveOptions, bool]:
     """Parse YAML dict into structured objects."""
 
     table_obj = data.get("table")
@@ -1613,10 +1611,10 @@ def parse_spec(
     return spec, area, options, placeholders
 
 
-def validate_spec(data: YamlDict) -> Tuple[List[str], List[str]]:
+def validate_spec(data: YamlDict) -> tuple[list[str], list[str]]:
     """Return (errors, warnings)."""
-    errors: List[str] = []
-    warnings: List[str] = []
+    errors: list[str] = []
+    warnings: list[str] = []
 
     if not data.get("title"):
         warnings.append("Missing 'title' — slide will have no title text")
@@ -1824,12 +1822,12 @@ def preview_spec(data: YamlDict) -> str:
     has_col_header = bool(table.get("has_col_header", True))
     has_row_header = bool(table.get("has_row_header", False))
 
-    lines: List[str] = ["=" * 60, "TABLE PREVIEW", "=" * 60]
+    lines: list[str] = ["=" * 60, "TABLE PREVIEW", "=" * 60]
     lines.append(f"Rows: {rows} | Cols: {cols}")
     lines.append(f"Column headers: {has_col_header} | Row headers: {has_row_header}")
 
     col_headers_obj = table.get("col_headers")
-    col_headers: List[str] = (
+    col_headers: list[str] = (
         [str(v) for v in col_headers_obj] if _is_object_list(col_headers_obj) else []
     )
     if has_col_header and col_headers:
@@ -1838,7 +1836,7 @@ def preview_spec(data: YamlDict) -> str:
         lines.append(" | ".join(col_headers))
 
     row_headers_obj = table.get("row_headers")
-    row_headers: List[str] = (
+    row_headers: list[str] = (
         [str(v) for v in row_headers_obj] if _is_object_list(row_headers_obj) else []
     )
     if has_row_header and row_headers:
@@ -1849,7 +1847,7 @@ def preview_spec(data: YamlDict) -> str:
             lines.append(f"... and {len(row_headers) - 5} more")
 
     cells_obj = table.get("cells")
-    cells: List[object] = cells_obj if _is_object_list(cells_obj) else []
+    cells: list[object] = cells_obj if _is_object_list(cells_obj) else []
 
     if cells:
         lines.append("")
@@ -1858,7 +1856,7 @@ def preview_spec(data: YamlDict) -> str:
             if not _is_object_list(row_obj):
                 continue
 
-            preview_row: List[str] = []
+            preview_row: list[str] = []
             for cell in row_obj[:5]:
                 cell_text = str(cell)
                 if len(cell_text) > 24:
@@ -1875,8 +1873,8 @@ def preview_spec(data: YamlDict) -> str:
     return "\n".join(lines)
 
 
-def _expand_inputs(inputs: List[str]) -> List[Path]:
-    files: List[Path] = []
+def _expand_inputs(inputs: list[str]) -> list[Path]:
+    files: list[Path] = []
     for pattern in inputs:
         path = Path(pattern)
         if path.is_file():
@@ -1895,7 +1893,7 @@ def _clear_content_area(slide: Slide, area: ContentArea) -> None:
             slide.shapes.element.remove(shape.element)
 
 
-_Box = Tuple[int, int, int, int]
+_Box = tuple[int, int, int, int]
 
 
 def _boxes_intersect(box_a: _Box, box_b: _Box) -> bool:
@@ -2011,8 +2009,8 @@ def cmd_generate(args: _GenerateArgs) -> int:
         if warnings:
             print(f"{path}:\n  - " + "\n  - ".join(warnings))
 
-        layout_override: Optional[str] = None
-        slide: Optional[Slide] = None
+        layout_override: str | None = None
+        slide: Slide | None = None
         if args.slide_index is not None:
             if args.slide_index < 0 or args.slide_index >= len(prs.slides):
                 print("slide_index out of range", file=sys.stderr)
@@ -2026,7 +2024,7 @@ def cmd_generate(args: _GenerateArgs) -> int:
             spec = fill_placeholders(spec)
 
         # ---- Resolve slide layout & content area ----
-        slide_layout_obj: Optional[SlideLayout] = None
+        slide_layout_obj: SlideLayout | None = None
         if slide is None:
             slide_layout_name = str(data.get("slide_layout") or "Default")
             slide_layout_obj = _find_layout(prs, slide_layout_name, fallback=True)
@@ -2183,10 +2181,10 @@ def cmd_init_config(args: _InitConfigArgs) -> int:
         for rel in master_part.rels.values():
             if "theme" in str(rel.reltype):
                 theme_el: _etree._Element = rel.target_part.element  # type: ignore[union-attr]
-                major_el: Optional[_etree._Element] = theme_el.find(  # type: ignore[assignment]
+                major_el: _etree._Element | None = theme_el.find(  # type: ignore[assignment]
                     f".//{{{ns}}}majorFont/{{{ns}}}latin"
                 )
-                minor_el: Optional[_etree._Element] = theme_el.find(  # type: ignore[assignment]
+                minor_el: _etree._Element | None = theme_el.find(  # type: ignore[assignment]
                     f".//{{{ns}}}minorFont/{{{ns}}}latin"
                 )
                 if major_el is not None:

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from pptx import Presentation
 
@@ -12,21 +11,21 @@ from clean_slides.cli import cmd_generate, cmd_insert
 @dataclass
 class GenerateArgs:
     input: list[str]
-    template: Optional[str]
-    slide_index: Optional[int]
+    template: str | None
+    slide_index: int | None
     keep_existing: bool
     detail: bool
-    output: Optional[str]
-    config: Optional[str] = None
+    output: str | None
+    config: str | None = None
 
 
 @dataclass
 class InsertArgs:
     file: str
     source: str
-    at: Optional[int]
-    slides: Optional[str]
-    out: Optional[str]
+    at: int | None
+    slides: str | None
+    out: str | None
 
 
 def _write_yaml(path: Path) -> None:

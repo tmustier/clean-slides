@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import yaml
 from typing_extensions import TypeGuard
@@ -120,11 +120,11 @@ _MOON_GROUP_KEYS = {
 _MOON_ARC_KEYS = {"0", "25", "50", "75", "100"}
 
 
-def _is_dict(value: object) -> TypeGuard[Dict[Any, Any]]:
+def _is_dict(value: object) -> TypeGuard[dict[Any, Any]]:
     return isinstance(value, dict)
 
 
-def _is_list(value: object) -> TypeGuard[List[Any]]:
+def _is_list(value: object) -> TypeGuard[list[Any]]:
     return isinstance(value, list)
 
 
@@ -132,9 +132,9 @@ def _is_list(value: object) -> TypeGuard[List[Any]]:
 class TemplateConfig:
     """Thin wrapper around the YAML config dict."""
 
-    raw: Dict[str, Any]
+    raw: dict[str, Any]
 
-    def section(self, key: str) -> Dict[str, Any]:
+    def section(self, key: str) -> dict[str, Any]:
         value = self.raw.get(key)
         if not _is_dict(value):
             raise KeyError(f"Missing or invalid template config section: {key}")
@@ -144,7 +144,7 @@ class TemplateConfig:
         """Return ``True`` if *key* exists and is a dict."""
         return _is_dict(self.raw.get(key))
 
-    def section_or_default(self, key: str, default: Dict[str, Any]) -> Dict[str, Any]:
+    def section_or_default(self, key: str, default: dict[str, Any]) -> dict[str, Any]:
         """Return section if present, otherwise *default*."""
         value = self.raw.get(key)
         if not _is_dict(value):
@@ -152,26 +152,26 @@ class TemplateConfig:
         return _stringify_keys(value)
 
 
-def _stringify_keys(value: Dict[Any, Any]) -> Dict[str, Any]:
+def _stringify_keys(value: dict[Any, Any]) -> dict[str, Any]:
     return {str(k): v for k, v in value.items()}
 
 
-def _require_dict(name: str, value: Any, errors: List[str]) -> Optional[Dict[str, Any]]:
+def _require_dict(name: str, value: Any, errors: list[str]) -> dict[str, Any] | None:
     if not _is_dict(value):
         errors.append(f"{name} must be a mapping")
         return None
     return _stringify_keys(value)
 
 
-def _require_keys(name: str, value: Dict[str, Any], keys: set[str], errors: List[str]) -> None:
+def _require_keys(name: str, value: dict[str, Any], keys: set[str], errors: list[str]) -> None:
     missing = [key for key in keys if key not in value]
     for key in sorted(missing):
         errors.append(f"Missing {name}.{key}")
 
 
-def validate_template_config(data: Dict[str, Any]) -> List[str]:
+def validate_template_config(data: dict[str, Any]) -> list[str]:
     """Validate template config structure, returning a list of errors."""
-    errors: List[str] = []
+    errors: list[str] = []
 
     for section, keys in _REQUIRED_SECTIONS.items():
         value = _require_dict(section, data.get(section), errors)
@@ -190,7 +190,7 @@ def validate_template_config(data: Dict[str, Any]) -> List[str]:
         _require_keys(section, value, set(keys), errors)
 
     raw_bullets = data.get("bullets")
-    bullets: Optional[Dict[str, Any]] = None
+    bullets: dict[str, Any] | None = None
     if _is_dict(raw_bullets):
         bullets = _stringify_keys(raw_bullets)
 
@@ -219,7 +219,7 @@ def validate_template_config(data: Dict[str, Any]) -> List[str]:
                 )
 
     raw_table_defaults = data.get("table_defaults")
-    table_defaults: Optional[Dict[str, Any]] = None
+    table_defaults: dict[str, Any] | None = None
     if _is_dict(raw_table_defaults):
         table_defaults = _stringify_keys(raw_table_defaults)
 
@@ -229,7 +229,7 @@ def validate_template_config(data: Dict[str, Any]) -> List[str]:
             _require_keys("table_defaults.legend", legend, _LEGEND_KEYS, errors)
 
     raw_moon = data.get("moon")
-    moon: Optional[Dict[str, Any]] = None
+    moon: dict[str, Any] | None = None
     if _is_dict(raw_moon):
         moon = _stringify_keys(raw_moon)
 
@@ -250,7 +250,7 @@ def validate_template_config(data: Dict[str, Any]) -> List[str]:
     return errors
 
 
-def load_template_config(path: Optional[Path] = None) -> TemplateConfig:
+def load_template_config(path: Path | None = None) -> TemplateConfig:
     """Load template config from *path* or package resource."""
     if path is not None:
         data = yaml.safe_load(path.read_text())
@@ -261,7 +261,7 @@ def load_template_config(path: Optional[Path] = None) -> TemplateConfig:
     if not _is_dict(data):
         raise ValueError("Template config must be a mapping")
 
-    normalized_data: Dict[str, Any] = _stringify_keys(data)
+    normalized_data: dict[str, Any] = _stringify_keys(data)
 
     errors = validate_template_config(normalized_data)
     if errors:

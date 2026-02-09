@@ -17,7 +17,7 @@ repos:
       - id: check-merge-conflict
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.4.10
+    rev: v0.15.0
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
@@ -33,5 +33,5 @@ repos:
         name: pyright (strict)
         entry: pyright
         language: python
-        additional_dependencies: [pyright==1.1.408]
+        additional_dependencies: [pyright>=1.1.408]
         pass_filenames: false

@@ -14,12 +14,13 @@ Coordinates for crop_region are in inches (matching inspect_slide output).
 
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Optional, Union
+from typing import Union
 
 from PIL import Image
 from PIL.Image import Image as PILImage
@@ -39,8 +40,8 @@ def render_slide(
     pptx_path: Pathish,
     slide_num: int = 1,
     dpi: int = RENDER_DPI,
-    output_dir: Optional[Pathish] = None,
-    engine: Optional[str] = None,
+    output_dir: Pathish | None = None,
+    engine: str | None = None,
 ) -> str:
     """Render a single slide to PNG.  Convenience wrapper around render_slides."""
     paths = render_slides(pptx_path, [slide_num], dpi=dpi, output_dir=output_dir, engine=engine)
@@ -51,8 +52,8 @@ def render_slides(
     pptx_path: Pathish,
     slide_nums: list[int],
     dpi: int = RENDER_DPI,
-    output_dir: Optional[Pathish] = None,
-    engine: Optional[str] = None,
+    output_dir: Pathish | None = None,
+    engine: str | None = None,
 ) -> list[str]:
     """Render multiple slides to PNG (single PDF conversion).
 
@@ -89,7 +90,7 @@ def crop_region(
     top: float,
     right: float,
     bottom: float,
-    output_path: Optional[Pathish] = None,
+    output_path: Pathish | None = None,
 ) -> str:
     """Crop a region from a rendered slide PNG.
 
@@ -137,7 +138,7 @@ def crop_region(
 class ScreenshotGenerator:
     """Generate PNG screenshots from PPTX files."""
 
-    def __init__(self, soffice_path: Optional[str] = None):
+    def __init__(self, soffice_path: str | None = None):
         self.soffice_path = soffice_path or "soffice"
 
     def capture(self, pptx_path: Path, out_dir: Path, slide_index: int = 0) -> Path:
@@ -227,10 +228,8 @@ def _render_via_powerpoint(
         img.save(png_path, "PNG")
         paths.append(png_path)
 
-    try:
+    with contextlib.suppress(OSError):
         os.remove(pdf_path)
-    except OSError:
-        pass
 
     return paths
 

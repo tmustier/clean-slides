@@ -8,6 +8,8 @@ Two categories of utilities:
 
 # pyright: reportPrivateUsage=false
 
+from __future__ import annotations
+
 from lxml import etree
 from pptx.oxml.ns import qn
 from pptx.shapes.base import BaseShape
