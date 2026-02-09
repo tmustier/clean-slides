@@ -1255,24 +1255,62 @@ def _move_last_slide_to(prs: PresentationObj, at_pos: int) -> None:
         sldIdLst.append(last)
 
 
-def _assert_slide_has_no_external_relationships(slide: Slide) -> None:
-    """Ensure slide has no r:id / r:embed relationships.
+_NS_R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_HYPERLINK_RELTYPE = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
+)
 
-    We currently only support inserting text/shape-only slides (typical output of
-    clean-slides tables). Images, charts, media, and hyperlinks introduce
-    relationships that must be copied at the OPC package level.
-    """
 
-    NS_R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-
+def _collect_relationship_ids(slide: Slide) -> set[str]:
+    """Return all r:id values referenced by shapes on this slide."""
+    ids: set[str] = set()
     spTree = slide.shapes.element
     for el in spTree.iter():
-        for key in el.attrib:
-            if str(key).startswith(f"{{{NS_R}}}"):
-                raise ValueError(
-                    "source slide contains external relationships (e.g. images/charts/hyperlinks); "
-                    "pptx insert currently supports shape-only slides"
-                )
+        for key, val in el.attrib.items():
+            if str(key).startswith(f"{{{_NS_R}}}"):
+                ids.add(str(val))
+    return ids
+
+
+def _check_and_copy_relationships(src: Slide, dst: Slide) -> None:
+    """Copy external hyperlink rels from src to dst, reject embedded content.
+
+    Hyperlinks are external relationships (just a URL string) and can be
+    safely re-created on the destination slide. Embedded content (images,
+    charts, media) requires OPC-level blob copying which is not yet supported.
+    """
+    ref_ids = _collect_relationship_ids(src)
+    if not ref_ids:
+        return
+
+    # Build a rId remapping: src rId → dst rId
+    remap: dict[str, str] = {}
+
+    for rid in ref_ids:
+        try:
+            rel = src.part.rels[rid]
+        except KeyError:
+            continue
+
+        if rel.is_external and rel.reltype == _HYPERLINK_RELTYPE:
+            # Add the hyperlink as a new external relationship on dst
+            new_rid = dst.part.rels.get_or_add_ext_rel(_HYPERLINK_RELTYPE, rel.target_ref)
+            remap[rid] = new_rid
+        else:
+            raise ValueError(
+                f"source slide contains embedded relationship rId={rid} "
+                f"(type={rel.reltype}); pptx insert supports text and hyperlinks only"
+            )
+
+    # Remap r:id attributes in the destination shapes
+    if remap:
+        dst_spTree = dst.shapes.element
+        for el in dst_spTree.iter():
+            for key in list(el.attrib):
+                if str(key).startswith(f"{{{_NS_R}}}"):
+                    old_id = str(el.attrib[key])
+                    if old_id in remap:
+                        el.attrib[key] = remap[old_id]
 
 
 def _replace_slide_shapes(dst: Slide, src: Slide) -> None:
@@ -1411,8 +1449,10 @@ def cmd_insert(args: _InsertArgs) -> int:
         pptx insert  deck.pptx /tmp/table.pptx --at 5
 
     Notes:
-    - Currently supports shape-only slides (no images/charts/media/hyperlinks).
-    - Inserts slides using the destination deck's "Default" layout when available.
+    - Supports text and hyperlink slides. Embedded content (images/charts/media)
+      is not yet supported.
+    - Matches the source slide's layout name in the destination deck, falling
+      back to Default when no match is found.
     """
 
     prs = _open(args.file)
@@ -1439,11 +1479,6 @@ def cmd_insert(args: _InsertArgs) -> int:
     insert_pos = at_pos
     for slide_num in selected:
         src_slide = _get_slide(src_prs, slide_num)
-        try:
-            _assert_slide_has_no_external_relationships(src_slide)
-        except ValueError as e:
-            print(f"Error: slide {slide_num}: {e}", file=sys.stderr)
-            return 1
 
         # Match the source slide's layout by name in the destination deck.
         # Fall back to "Default" if no match, then best-effort.
@@ -1458,6 +1493,14 @@ def cmd_insert(args: _InsertArgs) -> int:
 
         dst_slide = prs.slides.add_slide(dst_layout)
         _replace_slide_shapes(dst_slide, src_slide)
+
+        # Copy hyperlink relationships from source to destination (remapping rIds).
+        # Raises ValueError for embedded content (images/charts) which isn't supported yet.
+        try:
+            _check_and_copy_relationships(src_slide, dst_slide)
+        except ValueError as e:
+            print(f"Error: slide {slide_num}: {e}", file=sys.stderr)
+            return 1
 
         # Reorder to requested insertion position.
         _move_last_slide_to(prs, insert_pos)

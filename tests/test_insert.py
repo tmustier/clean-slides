@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pptx import Presentation
+from pptx.util import Emu
 
 from clean_slides.cli import cmd_generate, cmd_insert
 
@@ -102,8 +103,6 @@ def test_insert_preserves_layout(tmp_path: Path) -> None:
     src_slide = src_prs.slides.add_slide(src_layout)
 
     # Add a shape so the slide isn't empty
-    from pptx.util import Emu
-
     txbox = src_slide.shapes.add_textbox(Emu(100000), Emu(100000), Emu(500000), Emu(200000))
     txbox.text_frame.text = "Test"
 
@@ -130,3 +129,47 @@ def test_insert_preserves_layout(tmp_path: Path) -> None:
     out_prs = Presentation(str(out_path))
     inserted_slide = out_prs.slides[1]
     assert inserted_slide.slide_layout.name == src_layout_name
+
+
+def test_insert_copies_hyperlinks(tmp_path: Path) -> None:
+    """Insert should copy hyperlink relationships to the destination slide."""
+    # Create a source slide with a hyperlink
+    src_prs = Presentation()
+    src_slide = src_prs.slides.add_slide(src_prs.slide_layouts[0])
+    txbox = src_slide.shapes.add_textbox(Emu(100000), Emu(100000), Emu(500000), Emu(200000))
+    p = txbox.text_frame.paragraphs[0]
+    r = p.add_run()
+    r.text = "Click here"
+    r.hyperlink.address = "https://example.com"
+
+    src_path = tmp_path / "src.pptx"
+    src_prs.save(str(src_path))
+
+    # Create destination deck
+    dst_prs = Presentation()
+    dst_prs.slides.add_slide(dst_prs.slide_layouts[0])
+    dst_path = tmp_path / "dst.pptx"
+    dst_prs.save(str(dst_path))
+
+    out_path = tmp_path / "out.pptx"
+    ins_args = InsertArgs(
+        file=str(dst_path),
+        source=str(src_path),
+        at=2,
+        slides="1",
+        out=str(out_path),
+    )
+    assert cmd_insert(ins_args) == 0
+
+    # Verify the hyperlink relationship exists on the inserted slide
+    out_prs = Presentation(str(out_path))
+    inserted_slide = out_prs.slides[1]
+
+    hyperlink_rels = [
+        rel
+        for rel in inserted_slide.part.rels.values()
+        if rel.is_external
+        and "hyperlink" in rel.reltype
+    ]
+    assert len(hyperlink_rels) == 1
+    assert hyperlink_rels[0].target_ref == "https://example.com"
