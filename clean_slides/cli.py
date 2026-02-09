@@ -1452,7 +1452,10 @@ def cmd_insert(args: _InsertArgs) -> int:
     - Supports text and hyperlink slides. Embedded content (images/charts/media)
       is not yet supported.
     - Matches the source slide's layout name in the destination deck, falling
-      back to Default when no match is found.
+      back to Default (with a warning) when no match is found.  Native
+      PowerPoint would import the source layout/master into the destination
+      instead; we don't do that because it requires deep OPC-level copying
+      of theme, fonts, and background assets.
     """
 
     prs = _open(args.file)
@@ -1482,10 +1485,23 @@ def cmd_insert(args: _InsertArgs) -> int:
 
         # Match the source slide's layout by name in the destination deck.
         # Fall back to "Default" if no match, then best-effort.
+        #
+        # NOTE: Native PowerPoint imports the source layout (and its master)
+        # into the destination when no matching layout exists, creating
+        # numbered duplicates like "1_LayoutName".  We don't do that —
+        # importing a full layout/master with its theme, fonts, and
+        # backgrounds is a deep OPC-level operation.  Instead we fall back
+        # to "Default" and warn.  Shapes are still copied faithfully.
         dst_layout: SlideLayout | None = None
         src_layout_name = getattr(src_slide.slide_layout, "name", "")
         if src_layout_name:
             dst_layout = _try_find_layout(prs, src_layout_name)
+        if dst_layout is None and src_layout_name:
+            print(
+                f"  WARNING: slide {slide_num} layout '{src_layout_name}' not found "
+                f"in destination; falling back to Default. "
+                f"(Native PowerPoint would import the source layout instead.)"
+            )
         if dst_layout is None:
             dst_layout = _try_find_layout(prs, "default")
         if dst_layout is None:
