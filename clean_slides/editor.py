@@ -317,7 +317,7 @@ def _normalize_content(content: Any) -> list[tuple[str, RunOverrides]]:
             result.append((text, _parse_run_overrides(opts_raw)))
             continue
 
-        # Array format: ["text", {"bold": true}] — legacy format
+        # Array format: ["text", {"bold": true}]
         if _is_sequence(item):
             text = str(item[0]) if len(item) > 0 else ""
             opts_raw: object = item[1] if len(item) > 1 else {}

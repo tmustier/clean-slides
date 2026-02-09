@@ -314,13 +314,8 @@ class TableSpec:
         has_col_header = bool(table.get("has_col_header", True))
         has_row_header = bool(table.get("has_row_header", False))
 
-        # NOTE: YAML table.rows / table.cols are interpreted as *total* rows/cols,
-        # including enabled header rows/cols.
-        #
-        # Internal TableSpec.num_rows / num_cols remain *body-only* dimensions.
-        #
-        # Back-compat: if the provided `cells` shape matches the old semantics,
-        # we auto-detect and accept it.
+        # YAML table.rows / table.cols are *total* grid dimensions (including
+        # header rows/cols).  Internal num_rows / num_cols are body-only.
         total_rows = _to_int(num_rows_raw)
         total_cols = _to_int(num_cols_raw)
 
@@ -440,11 +435,6 @@ class TableSpec:
         # groups imply a row-header (superheader) column
         header_cols = 1
         body_cols = total_cols - header_cols
-
-        # Back-compat: old semantics counted body cols only.
-        max_len = max((len(r) for r in all_rows), default=0)
-        if max_len == total_cols:
-            body_cols = total_cols
 
         if body_cols <= 0:
             raise ValueError(

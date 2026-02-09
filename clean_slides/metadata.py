@@ -36,7 +36,7 @@ def reload_placeholders(config: TemplateConfig | None = None) -> None:
     keys are used — no defaults are injected.  This lets a config omit
     ``subtitle`` or ``tracker`` when the template lacks those placeholders.
     When no ``placeholders`` section exists at all, the built-in defaults
-    are used for backward compatibility.
+    are used.
     """
     if config is None:
         config = TEMPLATE_CONFIG
