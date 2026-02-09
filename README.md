@@ -62,11 +62,21 @@ That's mostly it. The tool also handles:
 - **Sidebars** — split layouts (2/3, 3/4) with formatted text in the secondary area
 - **Slide inspection and editing** — read shapes, edit text, merge decks
 
+## Charts (JSON) — alpha
+
+Clean Slides also includes a chart generator for bar/stacked/waterfall charts driven by JSON. This is alpha — the interface works but the schema and CLI flags may change.
+
+```bash
+pptx charts spec.json output.pptx
+```
+
+See [docs/CHARTS.md](docs/CHARTS.md) for the JSON schema and options.
+
 ## What it doesn't do
 
 This is a **text table tool**, not a presentation platform. It won't:
 
-- Generate charts, diagrams, or images
+- Generate diagrams or images
 - Apply transitions or animations
 - Create freeform layouts or infographics
 - Auto-generate content — you think the thoughts, the agent helps you structure them and handles formatting
@@ -127,6 +137,7 @@ Then edit `.clean-slides/config.yaml` to map your template's colours, fonts, and
 | Command | Purpose |
 |---------|---------|
 | `pptx generate <yaml...>` | Generate slides from YAML specs |
+| `pptx charts <json> <output>` | Generate charts from JSON specs (alpha) |
 | `pptx validate <yaml...>` | Check YAML against schema |
 | `pptx verify <yaml...>` | Check sizing and overflow |
 | `pptx show <file> [slide] [shape]` | Inspect slides and shapes |
