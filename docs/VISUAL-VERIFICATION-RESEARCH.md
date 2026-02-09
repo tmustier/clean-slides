@@ -241,6 +241,8 @@ RENDER GAP ANALYSIS:
 
 ## 4. Design: Placement-Based Verification for Generated Slides
 
+> **Implementation status**: Core module landed in `clean_slides/placement.py` with 22 tests. Not yet wired into the generation pipeline — see [#13](https://github.com/tmustier/clean-slides/issues/13) for remaining integration work.
+
 ### The key insight
 
 Clean Slides controls the generation pipeline. The renderer already computes every shape's position, size, role, and text content — it just throws that information away after writing OOXML. If we capture it, verification becomes trivial: run checks on a flat list of typed, positioned shapes.
