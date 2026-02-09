@@ -113,14 +113,14 @@ class ColumnSizer:
             weights = self._column_weights(spec, col_count)
             widths = self._distribute(min_widths, extra, weights)
 
-            # If the user provided *full* explicit weights including the row-header
-            # column, cap row-header to its preferred single-line width and
-            # redistribute overflow to body columns.
-            if (
-                isinstance(col_widths, list)
-                and spec.has_row_header
-                and len(col_widths) == col_count
-            ):
+            # Cap row-header to its preferred single-line width and
+            # redistribute overflow to body columns.  Applies to both
+            # ``column_widths: equal`` and explicit weights that include
+            # a row-header entry.
+            should_cap = spec.has_row_header and (
+                not explicit_weights or len(col_widths) == col_count
+            )
+            if should_cap:
                 cap = self._row_header_preferred_width(spec, metrics, fonts)
                 cap += col_right_pads[0] if col_right_pads else 0
                 cap = max(cap, min_widths[0])
