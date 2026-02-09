@@ -26,6 +26,9 @@ Render:
     pptx render        <file> <slides> [--out DIR] [--dpi N] [--engine E]
     pptx crop          <png> <L> <T> <R> <B> [--out PATH]
 
+Charts (from JSON):
+    pptx charts        <spec.json> <output.pptx> [--template PATH] [--layout NAME]
+
 Setup:
     pptx init          [-t template.pptx]        # create .clean-slides/ project dir
     pptx init-config   <template.pptx>           # generate config from a template
@@ -184,6 +187,15 @@ class _CropArgs(Protocol):
     right: float
     bottom: float
     out: str | None
+
+
+class _ChartsArgs(Protocol):
+    input: str
+    output: str
+    template: str | None
+    layout: str | None
+    expected_template: str | None
+    module_path: str | None
 
 
 class _InputArgs(Protocol):
@@ -1574,6 +1586,30 @@ def cmd_crop(args: _CropArgs) -> int:
     return 0
 
 
+def cmd_charts(args: _ChartsArgs) -> int:
+    from .charts import generate_charts_from_json
+
+    input_path = Path(args.input)
+    output_path = Path(args.output)
+    template_path = Path(args.template) if args.template else None
+
+    try:
+        generate_charts_from_json(
+            input_path,
+            output_path,
+            template=template_path,
+            layout=args.layout,
+            expected_template=args.expected_template,
+            module_path=args.module_path,
+        )
+    except (FileNotFoundError, ImportError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Saved → {output_path}")
+    return 0
+
+
 # ============================================================================
 # GENERATE COMMANDS (YAML → PPTX table pipeline)
 # ============================================================================
@@ -2800,6 +2836,17 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("bottom", type=float, help="Bottom edge (inches)")
     p.add_argument("--out", help="Output path")
     p.set_defaults(func=cmd_crop)
+
+    # ── Charts (JSON) ──────────────────────────────────────────────────
+
+    p = sub.add_parser("charts", help="Generate charts from JSON")
+    p.add_argument("input", help="Input JSON spec")
+    p.add_argument("output", help="Output PPTX")
+    p.add_argument("-t", "--template", help="Template PPTX")
+    p.add_argument("--layout", help="Layout name when using a template")
+    p.add_argument("--expected-template", help="Expected template alias/path")
+    p.add_argument("--module-path", help="Path to chart generator module")
+    p.set_defaults(func=cmd_charts)
 
     # ── Generate (YAML pipeline) ───────────────────────────────────────
 
