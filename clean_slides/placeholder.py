@@ -60,7 +60,7 @@ def fill_placeholders(spec: TableSpec) -> TableSpec:
         while len(col_headers) < spec.num_cols:
             col_headers.append(placeholder_title())
 
-    if spec.has_row_header:
+    if spec.has_row_header and not spec.is_grouped:
         while len(row_headers) < spec.num_rows:
             row_headers.append(placeholder_title())
 

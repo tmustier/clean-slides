@@ -33,7 +33,7 @@ class SizingWarning:
 
 # Safety factor on min-widths — PowerPoint text shaping wraps slightly
 # earlier than our character-width estimates.
-_MIN_WIDTH_SAFETY = 1.05
+_MIN_WIDTH_SAFETY = 1.10
 
 # ---------------------------------------------------------------------------
 # Font config bundle — avoids passing 4+ font args through every method
