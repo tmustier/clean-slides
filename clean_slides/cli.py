@@ -1506,6 +1506,10 @@ def cmd_insert(args: _InsertArgs) -> int:
             dst_layout = _try_find_layout(prs, "default")
         if dst_layout is None:
             dst_layout = _find_layout(prs, "default", fallback=True)
+            print(
+                f"  WARNING: slide {slide_num} — 'Default' layout not found either; "
+                f"using '{dst_layout.name}'."
+            )
 
         dst_slide = prs.slides.add_slide(dst_layout)
         _replace_slide_shapes(dst_slide, src_slide)
