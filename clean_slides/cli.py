@@ -1436,11 +1436,6 @@ def cmd_insert(args: _InsertArgs) -> int:
             print(f"Error: --at {at_pos} out of range (1-{total_before + 1})", file=sys.stderr)
             return 1
 
-    # Prefer the destination deck's "Default" layout so inserted slides show up
-    # as [Default] in `pptx show` (and match generator output). If "Default" isn't
-    # present, fall back to the source slide's layout name, then a best-effort layout.
-    default_layout = _try_find_layout(prs, "default")
-
     insert_pos = at_pos
     for slide_num in selected:
         src_slide = _get_slide(src_prs, slide_num)
@@ -1450,11 +1445,14 @@ def cmd_insert(args: _InsertArgs) -> int:
             print(f"Error: slide {slide_num}: {e}", file=sys.stderr)
             return 1
 
-        dst_layout = default_layout
+        # Match the source slide's layout by name in the destination deck.
+        # Fall back to "Default" if no match, then best-effort.
+        dst_layout: SlideLayout | None = None
+        src_layout_name = getattr(src_slide.slide_layout, "name", "")
+        if src_layout_name:
+            dst_layout = _try_find_layout(prs, src_layout_name)
         if dst_layout is None:
-            src_layout_name = getattr(src_slide.slide_layout, "name", "")
-            if src_layout_name:
-                dst_layout = _try_find_layout(prs, src_layout_name)
+            dst_layout = _try_find_layout(prs, "default")
         if dst_layout is None:
             dst_layout = _find_layout(prs, "default", fallback=True)
 
