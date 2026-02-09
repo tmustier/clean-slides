@@ -22,14 +22,15 @@ def column_right_pads(col_count: int, pad_top: int, has_row_header: bool) -> lis
     The values are derived from ``pad_top`` (used as the base "cell padding"
     unit in EMU):
       - normal columns: 4 * pad_top  (≈ 0.20" when pad_top = 0.05")
-      - row-header col: 6 * pad_top  (≈ 0.30")
+      - row-header col: 4 * pad_top  (same as normal — superheader text is
+        already visually distinct via bold + larger font)
       - last column: 0
     """
     if col_count <= 0:
         return []
 
     col_gap = pad_top * 4
-    row_header_gap = pad_top * 6
+    row_header_gap = pad_top * 4
 
     pads: list[int] = []
     for c in range(col_count):
