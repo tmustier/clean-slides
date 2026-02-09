@@ -236,6 +236,102 @@ Each entry uses the same format as cell content: plain strings, paragraph object
 
 ---
 
+## Row Groups (Superheaders)
+
+Use `row_groups` instead of `rows` + `row_headers` to create category-grouped tables with bold superheader rows spanning the full width. Each group has a `header` label and a list of `rows` beneath it.
+
+When using `row_groups`, omit `rows` and `row_headers` — the row count and row-header column are derived from the groups. You still need `cols` (total columns including the superheader column).
+
+### Minimal Example
+
+```yaml
+title: "Risk Assessment"
+
+table:
+  cols: 3
+  has_col_header: true
+  col_headers: ["Risk", "Mitigation"]
+
+  row_groups:
+    - header: "Technical"
+      rows:
+        - ["API breaks on upgrade", "Pin versions, integration tests"]
+        - ["Data loss during migration", "Backup + dry-run procedure"]
+
+    - header: "Commercial"
+      rows:
+        - ["Customer churn", "Quarterly reviews, SLA guarantees"]
+        - ["Pricing pressure", "Value-based pricing, cost transparency"]
+```
+
+This produces a table with:
+- A column-header row: `[superheader col] | Risk | Mitigation`
+- Two superheader rows ("Technical", "Commercial") each spanning the full width
+- Two body rows beneath each superheader
+
+### Full Syntax
+
+```yaml
+table:
+  cols: 3                           # Total columns (including the row-header/superheader column)
+  has_col_header: true
+  col_headers: ["Col A", "Col B"]   # Body column headers only (excluding superheader column)
+  row_header_col_header: "Category" # Optional label for the superheader column in the header row
+
+  # Color overrides for superheader styling
+  row_superheader_color: accent2    # Color for superheader text (theme name or hex)
+  col_superheader_color: accent2    # Color for column superheader text (if using col_superheaders)
+
+  row_groups:
+    - header: "Group A"             # Superheader label (bold, larger font, colored)
+      rows:                         # Body rows in this group
+        - ["Cell 1", "Cell 2"]      # Each row has (cols - 1) cells (body columns only)
+        - ["Cell 3", "Cell 4"]
+
+    - header: "Group B"
+      rows:
+        - ["Cell 5", "Cell 6"]
+```
+
+### Row Groups with Rich Cell Content
+
+Each cell within a row can use the same formats as regular cells: strings, lists of strings, or paragraph objects:
+
+```yaml
+row_groups:
+  - header: "Deploy"
+    rows:
+      -
+        -
+          - { text: "Co-locate in EU data centers", bold: true, lvl: 0 }
+        -
+          - { text: "Racks in proven sites with network in place", lvl: 1 }
+          - { text: "Monthly colocation: ~€1.9k per server", lvl: 2 }
+```
+
+### Column Superheaders
+
+Separate from row groups, `col_superheaders` add a header row above the column headers that spans multiple columns:
+
+```yaml
+table:
+  cols: 4
+  has_col_header: true
+
+  col_superheaders:
+    - label: ""                  # Empty label above the row-header column
+      span: 1
+    - label: "Financial Details" # Spans 3 body columns
+      span: 3
+
+  col_headers: ["Revenue", "Cost", "Margin"]
+  # ...
+```
+
+Column superheaders and row groups can be combined in the same table.
+
+---
+
 ## Legacy Schema
 
 The old schema (moons, superheaders, bullets, etc.) is preserved at:
