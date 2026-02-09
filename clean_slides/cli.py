@@ -1621,7 +1621,9 @@ def validate_spec(data: YamlDict) -> tuple[list[str], list[str]]:
 
     table_obj = data.get("table")
     if not _is_str_object_dict(table_obj) or not table_obj:
-        errors.append("Missing 'table' section")
+        # No table section — metadata-only slide (title, section, quote, etc.).
+        # This is valid; generate will create the slide with the correct layout
+        # and fill placeholders without rendering a table.
         return errors, warnings
 
     table = table_obj
@@ -2009,6 +2011,8 @@ def cmd_generate(args: _GenerateArgs) -> int:
         if warnings:
             print(f"{path}:\n  - " + "\n  - ".join(warnings))
 
+        has_table = _is_str_object_dict(data.get("table")) and bool(data.get("table"))
+
         layout_override: str | None = None
         slide: Slide | None = None
         if args.slide_index is not None:
@@ -2019,61 +2023,64 @@ def cmd_generate(args: _GenerateArgs) -> int:
             if "content_layout" not in data and "layout" not in data:
                 layout_override = _infer_layout_from_slide(slide)
 
-        spec, area, options, placeholders = parse_spec(data, layout_override=layout_override)
-        if placeholders:
-            spec = fill_placeholders(spec)
-
-        # ---- Resolve slide layout & content area ----
+        # ---- Resolve slide layout & create slide ----
         slide_layout_obj: SlideLayout | None = None
         if slide is None:
             slide_layout_name = str(data.get("slide_layout") or "Default")
             slide_layout_obj = _find_layout(prs, slide_layout_name, fallback=True)
             slide = prs.slides.add_slide(slide_layout_obj)
 
+        if has_table:
+            spec, area, options, placeholders = parse_spec(data, layout_override=layout_override)
+            if placeholders:
+                spec = fill_placeholders(spec)
+
             # Derive content area from the layout's primary content placeholder
             # unless the YAML explicitly overrides via content_area / content_layout.
-            if "content_area" not in data:
+            if slide_layout_obj is not None and "content_area" not in data:
                 layout_area = _content_area_from_layout(slide_layout_obj)
                 if layout_area is not None:
                     area = layout_area
-        else:
-            if not args.keep_existing:
+
+            if args.slide_index is not None and not args.keep_existing:
                 _clear_content_area(slide, area)
 
-        layout, report = solver.solve(spec, area, options)
-        print(f"{path}: {report.to_text(detail=args.detail)}")
+            layout, report = solver.solve(spec, area, options)
+            print(f"{path}: {report.to_text(detail=args.detail)}")
 
-        spTree = slide.shapes.element
+            spTree = slide.shapes.element
 
-        shape_id: int = TableDefaults.SHAPE_ID_START
+            shape_id: int = TableDefaults.SHAPE_ID_START
 
-        def next_shape_id() -> int:
-            nonlocal shape_id
-            shape_id += 1
-            return shape_id
+            def next_shape_id() -> int:
+                nonlocal shape_id
+                shape_id += 1
+                return shape_id
 
-        renderer = TableRenderer(spTree, next_shape_id, slide_part=slide.part)
-        renderer.render(spec, layout, area)
+            renderer = TableRenderer(spTree, next_shape_id, slide_part=slide.part)
+            renderer.render(spec, layout, area)
 
-        # Sidebar: fill secondary content area with formatted paragraphs
-        sidebar_raw = data.get("sidebar")
-        if sidebar_raw is not None and slide_layout_obj is not None:
-            sidebar_area = _sidebar_content_area(slide_layout_obj)
-            if sidebar_area is not None:
-                from .content import Paragraph, normalize_cell
+            # Sidebar: fill secondary content area with formatted paragraphs
+            sidebar_raw = data.get("sidebar")
+            if sidebar_raw is not None and slide_layout_obj is not None:
+                sidebar_area = _sidebar_content_area(slide_layout_obj)
+                if sidebar_area is not None:
+                    from .content import Paragraph, normalize_cell
 
-                default_para = Paragraph(text="", lvl=0)
-                sidebar_paras = normalize_cell(sidebar_raw, default_para, parse_bullets=True)
-                if sidebar_paras:
-                    if data.get("sidebar_shrink"):
-                        _shrink_sidebar_to_fit(sidebar_paras, sidebar_area, metrics)
-                    else:
-                        _warn_sidebar_overflow(sidebar_paras, sidebar_area, metrics)
-                    renderer.render_sidebar(sidebar_paras, sidebar_area)
-            else:
-                print(
-                    "  WARNING: sidebar content specified but layout has no secondary content area"
-                )
+                    default_para = Paragraph(text="", lvl=0)
+                    sidebar_paras = normalize_cell(sidebar_raw, default_para, parse_bullets=True)
+                    if sidebar_paras:
+                        if data.get("sidebar_shrink"):
+                            _shrink_sidebar_to_fit(sidebar_paras, sidebar_area, metrics)
+                        else:
+                            _warn_sidebar_overflow(sidebar_paras, sidebar_area, metrics)
+                        renderer.render_sidebar(sidebar_paras, sidebar_area)
+                else:
+                    print(
+                        "  WARNING: sidebar content specified but layout has no secondary content area"
+                    )
+        else:
+            print(f"{path}: metadata-only slide (no table)")
 
         fill_slide_metadata(slide, data)
 
