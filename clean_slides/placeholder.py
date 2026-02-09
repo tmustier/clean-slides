@@ -51,7 +51,13 @@ def placeholder_body(sentences: int = 2) -> str:
 
 
 def fill_placeholders(spec: TableSpec) -> TableSpec:
-    """Populate missing headers/cells with placeholder text."""
+    """Populate missing headers/cells with placeholder text.
+
+    For flat tables, ``row_headers`` has one entry per body row.
+    For grouped tables, ``row_headers`` has one entry per *group*
+    (superheader), not per body row — so we pad against the group
+    count instead.
+    """
     col_headers: list[str] = list(spec.col_headers or [])
     row_headers: list[str] = list(spec.row_headers or [])
     cells: list[list[Any]] = list(spec.cells or [])
@@ -60,8 +66,12 @@ def fill_placeholders(spec: TableSpec) -> TableSpec:
         while len(col_headers) < spec.num_cols:
             col_headers.append(placeholder_title())
 
-    if spec.has_row_header and not spec.is_grouped:
-        while len(row_headers) < spec.num_rows:
+    if spec.has_row_header:
+        # Grouped tables: one row_header per group (not per body row).
+        expected_row_headers = (
+            len(spec.groups) if spec.is_grouped and spec.groups else spec.num_rows
+        )
+        while len(row_headers) < expected_row_headers:
             row_headers.append(placeholder_title())
 
     filled_cells: list[list[Any]] = []
