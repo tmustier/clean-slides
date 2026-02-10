@@ -1268,9 +1268,7 @@ def _move_last_slide_to(prs: PresentationObj, at_pos: int) -> None:
 
 
 _NS_R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-_HYPERLINK_RELTYPE = (
-    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
-)
+_HYPERLINK_RELTYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
 
 
 def _collect_relationship_ids(slide: Slide) -> set[str]:

@@ -168,8 +168,7 @@ def test_insert_copies_hyperlinks(tmp_path: Path) -> None:
     hyperlink_rels = [
         rel
         for rel in inserted_slide.part.rels.values()
-        if rel.is_external
-        and "hyperlink" in rel.reltype
+        if rel.is_external and "hyperlink" in rel.reltype
     ]
     assert len(hyperlink_rels) == 1
     assert hyperlink_rels[0].target_ref == "https://example.com"

@@ -24,6 +24,8 @@ def _to_str_dict(value: object) -> dict[str, Any]:
     for k, v in items:
         result[k] = v
     return result
+
+
 _MODULE_CACHE: dict[Path, ModuleType] = {}
 
 
