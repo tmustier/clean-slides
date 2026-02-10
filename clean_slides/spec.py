@@ -226,14 +226,8 @@ def _stringify_keys(value: dict[Any, Any]) -> dict[str, Any]:
     return {str(k): v for k, v in value.items()}
 
 
-def _as_str_list(value: object) -> list[str] | None:
-    if not _is_list(value):
-        return None
-    return [str(item) for item in value]
-
-
 def _as_any_list(value: object) -> list[Any] | None:
-    """Like ``_as_str_list`` but preserves dicts/lists for rich content."""
+    """Return *value* as a list preserving dicts/lists for rich content."""
     if not _is_list(value):
         return None
     return list(value)
@@ -356,6 +350,7 @@ class ColSuperHeader:
 
     label: str
     span: int  # number of grid columns this header spans
+    sub: str | None = None  # optional subtitle (non-bold, body text color)
 
 
 @dataclass
@@ -389,9 +384,9 @@ class TableSpec:
     has_col_header: bool = True
     has_row_header: bool = False
 
-    col_headers: list[str] | None = None
+    col_headers: list[Any] | None = None
     col_superheaders: list[ColSuperHeader] | None = None
-    row_header_col_header: str | None = None  # col header for the row-header column
+    row_header_col_header: Any | None = None  # col header for the row-header column
     row_headers: list[Any] | None = None
     cells: list[list[Any]] | None = None
 
@@ -499,12 +494,9 @@ class TableSpec:
 
         col_widths_parsed = cls._parse_column_widths(table)
 
-        row_header_col_header_raw: object = table.get("row_header_col_header")
-        row_header_col_header = (
-            str(row_header_col_header_raw) if row_header_col_header_raw is not None else None
-        )
+        row_header_col_header: Any | None = table.get("row_header_col_header")
 
-        col_headers = _as_str_list(table.get("col_headers"))
+        col_headers = _as_any_list(table.get("col_headers"))
         # Convenience: allow the row-header column header to be included as the first col_header.
         if (
             has_row_header
@@ -596,12 +588,9 @@ class TableSpec:
 
         col_widths_parsed = cls._parse_column_widths(table)
 
-        row_header_col_header_raw: object = table.get("row_header_col_header")
-        row_header_col_header = (
-            str(row_header_col_header_raw) if row_header_col_header_raw is not None else None
-        )
+        row_header_col_header: Any | None = table.get("row_header_col_header")
 
-        col_headers = _as_str_list(table.get("col_headers"))
+        col_headers = _as_any_list(table.get("col_headers"))
         if (
             col_headers
             and row_header_col_header is None
@@ -720,7 +709,10 @@ class TableSpec:
                 span = _to_int(span_raw) if span_raw is not None else 1
             except (TypeError, ValueError):
                 span = 1
-            headers.append(ColSuperHeader(label=str(label_raw), span=span))
+            label = str(label_raw)
+            sub_raw: object = d.get("sub")
+            sub = str(sub_raw) if sub_raw is not None else None
+            headers.append(ColSuperHeader(label=label, span=span, sub=sub))
 
         return headers or None
 

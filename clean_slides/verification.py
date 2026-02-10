@@ -267,7 +267,7 @@ class LayoutVerifier:
 
             if spec.has_row_header and spec.row_header_col_header:
                 check(
-                    str(spec.row_header_col_header),
+                    spec.row_header_col_header,
                     self.layout.cells[hdr_grid][0],
                     header_def,
                     "row_header_col_header",
@@ -277,13 +277,13 @@ class LayoutVerifier:
                 )
 
             for ci in range(spec.num_cols):
-                text = (
-                    str(spec.col_headers[ci])
+                raw = (
+                    spec.col_headers[ci]
                     if spec.col_headers and ci < len(spec.col_headers)
                     else ""
                 )
                 check(
-                    text,
+                    raw,
                     self.layout.cells[hdr_grid][ci + col_offset],
                     header_def,
                     "col_header",
@@ -295,13 +295,13 @@ class LayoutVerifier:
         # row headers
         if spec.has_row_header:
             for ri in range(spec.num_rows):
-                text = (
-                    str(spec.row_headers[ri])
+                raw_hdr = (
+                    spec.row_headers[ri]
                     if spec.row_headers and ri < len(spec.row_headers)
                     else ""
                 )
                 check(
-                    text,
+                    raw_hdr,
                     self.layout.cells[ri + row_offset][0],
                     header_def,
                     "row_header",

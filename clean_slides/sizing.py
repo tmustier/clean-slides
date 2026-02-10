@@ -13,7 +13,7 @@ from typing import Any
 from typing_extensions import TypeGuard
 
 from .constants import BULLET_MARGINS, TableDefaults
-from .content import Paragraph, normalize_cell
+from .content import Paragraph, header_text_and_sub, normalize_cell
 from .measure import (
     cell_content_height,
     column_right_pads,
@@ -273,10 +273,12 @@ class ColumnSizer:
             fonts.effective_row_superheader_size_pt if spec.is_grouped else fonts.header_size_pt
         )
         for header in spec.row_headers or []:
-            text = str(header)
+            text, sub_text = header_text_and_sub(header)
 
             # Default min width is driven by the longest unbreakable token.
             w = max(_longest_word_width(text, fonts.header_font, size_pt, metrics), 1)
+            if sub_text:
+                w = max(w, _longest_word_width(sub_text, fonts.header_font, size_pt, metrics))
 
             # UX tweak: avoid clunky wraps like
             #
@@ -316,10 +318,18 @@ class ColumnSizer:
 
         # 2. row_header_col_header — renders at header_size_pt
         if spec.row_header_col_header:
-            text = str(spec.row_header_col_header)
+            rhch_text, rhch_sub = header_text_and_sub(spec.row_header_col_header)
             max_w = max(
-                max_w, _longest_word_width(text, fonts.header_font, fonts.header_size_pt, metrics)
+                max_w,
+                _longest_word_width(rhch_text, fonts.header_font, fonts.header_size_pt, metrics),
             )
+            if rhch_sub:
+                max_w = max(
+                    max_w,
+                    _longest_word_width(
+                        rhch_sub, fonts.header_font, fonts.header_size_pt, metrics
+                    ),
+                )
 
         # 3. First col superheader label (if it covers this column) — renders at header_size_pt
         if spec.col_superheaders and spec.col_superheaders[0].label:
@@ -357,20 +367,30 @@ class ColumnSizer:
             fonts.effective_row_superheader_size_pt if spec.is_grouped else fonts.header_size_pt
         )
         for header in spec.row_headers or []:
+            text, sub_text = header_text_and_sub(header)
             max_w = max(
                 max_w,
-                int(metrics.text_width_no_wrap(str(header), fonts.header_font, size_pt) * self._BOLD_FACTOR),
+                int(metrics.text_width_no_wrap(text, fonts.header_font, size_pt) * self._BOLD_FACTOR),
             )
+            if sub_text:
+                max_w = max(
+                    max_w,
+                    int(metrics.text_width_no_wrap(sub_text, fonts.header_font, size_pt)),
+                )
 
         if spec.row_header_col_header:
+            rhch_text, rhch_sub = header_text_and_sub(spec.row_header_col_header)
             max_w = max(
                 max_w,
-                metrics.text_width_no_wrap(
-                    str(spec.row_header_col_header),
-                    fonts.header_font,
-                    fonts.header_size_pt,
-                ),
+                metrics.text_width_no_wrap(rhch_text, fonts.header_font, fonts.header_size_pt),
             )
+            if rhch_sub:
+                max_w = max(
+                    max_w,
+                    metrics.text_width_no_wrap(
+                        rhch_sub, fonts.header_font, fonts.header_size_pt
+                    ),
+                )
 
         if spec.col_superheaders and spec.col_superheaders[0].label:
             max_w = max(
@@ -391,8 +411,10 @@ class ColumnSizer:
         if not spec.has_col_header or not spec.col_headers:
             return 0
 
-        text = str(spec.col_headers[col_idx])
+        text, sub_text = header_text_and_sub(spec.col_headers[col_idx])
         w = _longest_word_width(text, fonts.header_font, fonts.header_size_pt, metrics)
+        if sub_text:
+            w = max(w, _longest_word_width(sub_text, fonts.header_font, fonts.header_size_pt, metrics))
 
         # Similar to row-header logic: avoid clunky single-word lines for
         # multi-word headers by ensuring adjacent word pairs fit.
@@ -482,11 +504,19 @@ class ColumnSizer:
 
             header_w = 0
             if spec.has_col_header and spec.col_headers and col_idx < len(spec.col_headers):
+                hdr_text, hdr_sub = header_text_and_sub(spec.col_headers[col_idx])
                 header_w = metrics.text_width_no_wrap(
-                    str(spec.col_headers[col_idx]),
+                    hdr_text,
                     fonts.header_font,
                     fonts.header_size_pt,
                 )
+                if hdr_sub:
+                    header_w = max(
+                        header_w,
+                        metrics.text_width_no_wrap(
+                            hdr_sub, fonts.header_font, fonts.header_size_pt
+                        ),
+                    )
 
             body_w = 0
             for row in spec.cells or []:
@@ -727,10 +757,17 @@ class RowSizer:
         pad_top: int,
         pad_bottom: int,
     ) -> int:
-        """Compact single-line row for column superheaders."""
+        """Compact row for column superheaders (1–2 lines depending on sub)."""
         line_h = int(fonts.header_size_pt * EMU_PER_PT * TableDefaults.LINE_SPACING * metrics.fudge)
+        max_lines = 1
+        if spec.col_superheaders:
+            for csh in spec.col_superheaders:
+                lines = 1
+                if csh.sub:
+                    lines += 1
+                max_lines = max(max_lines, lines)
         # Minimal vertical padding — just enough to separate from content above
-        return line_h + pad_top
+        return line_h * max_lines + pad_top
 
     def _header_height(
         self,
@@ -746,24 +783,25 @@ class RowSizer:
 
         # Include row_header_col_header in line count if present
         if spec.row_header_col_header and spec.has_row_header:
-            text = str(spec.row_header_col_header)
+            rhch_text, rhch_sub = header_text_and_sub(spec.row_header_col_header)
             w = text_width_for_level(col_widths[0], 0)
-            max_lines = max(
-                max_lines,
-                metrics.lines_needed(text, w, fonts.header_font, fonts.header_size_pt) or 1,
-            )
+            lines = metrics.lines_needed(rhch_text, w, fonts.header_font, fonts.header_size_pt) or 1
+            if rhch_sub:
+                lines += 1
+            max_lines = max(max_lines, lines)
 
         for col_idx in range(spec.num_cols):
-            text = (
-                str(spec.col_headers[col_idx])
+            raw = (
+                spec.col_headers[col_idx]
                 if spec.col_headers and col_idx < len(spec.col_headers)
                 else ""
             )
+            text, sub_text = header_text_and_sub(raw)
             w = text_width_for_level(col_widths[col_idx + col_offset], 0)
-            max_lines = max(
-                max_lines,
-                metrics.lines_needed(text, w, fonts.header_font, fonts.header_size_pt) or 1,
-            )
+            lines = metrics.lines_needed(text, w, fonts.header_font, fonts.header_size_pt) or 1
+            if sub_text:
+                lines += 1
+            max_lines = max(max_lines, lines)
 
         # Fit header row to content: at least 1 line, capped
         lines = min(max(max_lines, 1), TableDefaults.MAX_HEADER_LINES)
@@ -826,13 +864,13 @@ class RowSizer:
         h = 0
         if spec.has_row_header and not spec.is_grouped:
             # Flat row headers: each row has its own header
-            text = (
-                str(spec.row_headers[body_row])
+            raw_hdr = (
+                spec.row_headers[body_row]
                 if spec.row_headers and body_row < len(spec.row_headers)
                 else ""
             )
-            if text:
-                ps = normalize_cell(text, hdr_def, parse_bullets=False)
+            if raw_hdr:
+                ps = normalize_cell(raw_hdr, hdr_def, parse_bullets=False)
                 h = max(
                     h,
                     cell_content_height(
@@ -893,13 +931,13 @@ class RowSizer:
 
             # Row header (col 0 when present)
             if spec.has_row_header and not spec.is_grouped:
-                text = (
-                    str(spec.row_headers[ri])
+                raw_hdr = (
+                    spec.row_headers[ri]
                     if spec.row_headers and ri < len(spec.row_headers)
                     else ""
                 )
-                if text:
-                    ps = normalize_cell(text, hdr_def, parse_bullets=False)
+                if raw_hdr:
+                    ps = normalize_cell(raw_hdr, hdr_def, parse_bullets=False)
                     cell_map[0] = cell_content_height(
                         ps,
                         text_widths[0],

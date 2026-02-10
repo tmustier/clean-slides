@@ -13,6 +13,21 @@ from typing_extensions import TypeGuard
 BULLET_RE = re.compile(r"^(?P<indent>\s*)([-•])\s+(?P<text>.+)")
 
 
+def header_text_and_sub(value: object) -> tuple[str, str | None]:
+    """Extract the display text and optional ``sub`` from a header value.
+
+    *value* may be a plain string, a dict ``{text: ..., sub: ...}``, or any
+    other object (which is stringified).  Returns ``(text, sub)`` where *sub*
+    is ``None`` when not present.
+    """
+    if _is_dict(value):
+        text = str(value.get("text", ""))
+        raw_sub: object = value.get("sub")
+        sub = str(raw_sub) if raw_sub is not None else None
+        return text, sub
+    return str(value), None
+
+
 def _is_dict(value: object) -> TypeGuard[dict[Any, Any]]:
     return isinstance(value, dict)
 
@@ -31,6 +46,7 @@ class Paragraph:
     bold: bool | None = None
     italic: bool | None = None
     underline: bool | None = None
+    sub: str | None = None  # optional subtitle rendered as a new line, non-bold, body color
 
 
 def normalize_cell(
@@ -49,7 +65,12 @@ def normalize_cell(
         if "icon" in value:
             return []  # icon cells render as shapes, not text
         data: dict[str, Any] = {str(k): v for k, v in value.items()}
-        return [_merge_paragraph(_paragraph_from_dict(data), default)]
+        para = _paragraph_from_dict(data)
+        merged = _merge_paragraph(para, default)
+        result = [merged]
+        if para.sub:
+            result.append(_make_sub_paragraph(para.sub, merged))
+        return result
 
     if _is_list(value):
         paragraphs: list[Paragraph] = []
@@ -99,6 +120,9 @@ def _paragraph_from_dict(data: dict[str, Any]) -> Paragraph:
     raw_color = data.get("color")
     color = str(raw_color) if raw_color is not None else None
 
+    raw_sub = data.get("sub")
+    sub = str(raw_sub) if raw_sub is not None else None
+
     return Paragraph(
         text=text,
         lvl=lvl,
@@ -108,7 +132,24 @@ def _paragraph_from_dict(data: dict[str, Any]) -> Paragraph:
         bold=_optional_bool(data.get("bold")),
         italic=_optional_bool(data.get("italic")),
         underline=_optional_bool(data.get("underline")),
+        sub=sub,
     )
+
+
+def _make_sub_paragraph(sub_text: str, parent: Paragraph) -> Paragraph:
+    """Create a subtitle paragraph: same font/size as *parent*, non-bold, body text color."""
+    return Paragraph(
+        text=sub_text,
+        lvl=parent.lvl,
+        font=parent.font,
+        size_pt=parent.size_pt,
+        color=SUB_COLOR,
+        bold=False,
+    )
+
+
+#: Color used for ``sub`` subtitle lines — body text color (typically "tx1").
+SUB_COLOR: str = "tx1"
 
 
 def _merge_paragraph(paragraph: Paragraph, default: Paragraph) -> Paragraph:
