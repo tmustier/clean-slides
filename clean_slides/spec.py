@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, TypedDict, Union
 
@@ -23,6 +24,143 @@ is_icon_cell = _is_icon_cell
 icon_cell_value = _icon_cell_value
 
 Box = tuple[int, int, int, int]  # x, y, w, h in EMU
+
+
+# ---------------------------------------------------------------------------
+# Chart cells — data model
+# ---------------------------------------------------------------------------
+
+# Pattern: "chartname-N" where chartname is [a-zA-Z_][a-zA-Z0-9_]* and N is 1+
+_CHART_REF_RE = re.compile(r"^([a-zA-Z_][a-zA-Z0-9_]*)-(\d+)$")
+
+
+@dataclass
+class ChartDef:
+    """Definition of a bar chart that can be embedded in table cells."""
+
+    name: str
+    dir: str  # "horizontal" | "vertical"
+    values: list[float]
+    format: str = "{}"
+    color: str | None = None  # theme name or hex; None = template default
+    label_position: str | None = None  # "above", "right", "on", "none"
+    scale_max: float | None = None  # override automatic axis maximum
+    scale_min: float | None = None  # override automatic axis minimum
+    scale_group: str | None = None  # charts in the same group share axis scale
+
+    @classmethod
+    def from_dict(cls, name: str, data: dict[str, Any]) -> ChartDef:
+        raw_dir = str(data.get("dir", "vertical"))
+        if raw_dir not in ("horizontal", "vertical"):
+            raise ValueError(f"Chart '{name}': dir must be 'horizontal' or 'vertical', got '{raw_dir}'")
+
+        raw_values: object = data.get("values")
+        if not _is_list(raw_values) or not raw_values:
+            raise ValueError(f"Chart '{name}': values must be a non-empty list of numbers")
+        values: list[float] = []
+        for i, item in enumerate(raw_values):
+            try:
+                values.append(float(item))
+            except (TypeError, ValueError):
+                raise ValueError(f"Chart '{name}': values[{i}] is not a number: {item!r}")
+
+        fmt = str(data.get("format", "{}"))
+        color_raw = data.get("color")
+        color = str(color_raw) if color_raw is not None else None
+        label_pos_raw = data.get("label_position")
+        label_position = str(label_pos_raw) if label_pos_raw is not None else None
+        scale_max_raw = data.get("scale_max")
+        scale_max = float(scale_max_raw) if scale_max_raw is not None else None
+        scale_min_raw = data.get("scale_min")
+        scale_min = float(scale_min_raw) if scale_min_raw is not None else None
+        scale_group_raw = data.get("scale_group")
+        scale_group = str(scale_group_raw) if scale_group_raw is not None else None
+
+        return cls(
+            name=name,
+            dir=raw_dir,
+            values=values,
+            format=fmt,
+            color=color,
+            label_position=label_position,
+            scale_max=scale_max,
+            scale_min=scale_min,
+            scale_group=scale_group,
+        )
+
+
+@dataclass
+class ChartRef:
+    """A cell reference to a specific bar in a named chart.
+
+    ``name`` identifies the :class:`ChartDef`; ``index`` is 1-based.
+    """
+
+    name: str
+    index: int  # 1-based
+
+    def __repr__(self) -> str:
+        return f"{self.name}-{self.index}"
+
+
+def parse_chart_ref(value: object) -> ChartRef | None:
+    """Try to parse a cell value as a chart reference (``chartname-N``).
+
+    Returns ``None`` if *value* is not a matching string.
+    """
+    if not isinstance(value, str):
+        return None
+    m = _CHART_REF_RE.match(value.strip())
+    if m is None:
+        return None
+    return ChartRef(name=m.group(1), index=int(m.group(2)))
+
+
+def is_chart_ref(value: object) -> bool:
+    """Return True if *value* is a chart-ref string like ``bar1-3``."""
+    return parse_chart_ref(value) is not None
+
+
+def _parse_charts(data: dict[str, Any]) -> dict[str, ChartDef]:
+    """Parse the top-level ``charts:`` mapping from YAML."""
+    raw: object = data.get("charts")
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError("'charts' must be a mapping of chart-name → chart-definition")
+    # raw is dict[Any, Any] from YAML; iterate with explicit typing.
+    raw_dict: dict[str, Any] = {str(k): v for k, v in raw.items()}  # type: ignore[union-attr]
+    charts: dict[str, ChartDef] = {}
+    for name, raw_value in raw_dict.items():
+        if not _is_dict(raw_value):
+            raise ValueError(f"Chart '{name}': definition must be a mapping")
+        charts[name] = ChartDef.from_dict(name, _stringify_keys(raw_value))
+    _resolve_scale_groups(charts)
+    return charts
+
+
+def _resolve_scale_groups(charts: dict[str, ChartDef]) -> None:
+    """Resolve ``scale_group``: charts in the same group share axis bounds.
+
+    For each group, the effective ``scale_max`` is the maximum value across
+    all member charts and the effective ``scale_min`` is the minimum value.
+    Explicit per-chart ``scale_max`` / ``scale_min`` override the group value.
+    """
+    groups: dict[str, list[ChartDef]] = {}
+    for chart in charts.values():
+        if chart.scale_group is not None:
+            groups.setdefault(chart.scale_group, []).append(chart)
+
+    for members in groups.values():
+        group_max = max(max(c.values) for c in members)
+        group_min = min(min(c.values) for c in members)
+        # Only set negative min if there are negative values
+        effective_min = group_min if group_min < 0 else None
+        for c in members:
+            if c.scale_max is None:
+                c.scale_max = group_max
+            if c.scale_min is None and effective_min is not None:
+                c.scale_min = effective_min
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +401,12 @@ class TableSpec:
     body_default_lvl: int = 0
     parse_bullets: bool = True
 
+    # Chart definitions — keyed by chart name.  Cell grid may contain
+    # ``ChartRef`` objects that reference these.
+    chart_defs: dict[str, ChartDef] = field(
+        default_factory=lambda: dict[str, ChartDef]()
+    )
+
     # Header colors — defaults come from template-config.yaml default_colors section.
     # Individual specs can override per table.
     col_header_color: str | None = None
@@ -374,6 +518,10 @@ class TableSpec:
         body_default_lvl_raw: object = table.get("body_default_lvl", 0)
         body_default_lvl = _to_int(body_default_lvl_raw) if body_default_lvl_raw is not None else 0
 
+        chart_defs = _parse_charts(data)
+        if cells is not None and chart_defs:
+            cells = _replace_chart_refs(cells)
+
         return cls(
             num_rows=body_rows,
             num_cols=body_cols,
@@ -390,6 +538,7 @@ class TableSpec:
             row_overrides=_parse_overrides(table.get("row_overrides")),
             col_overrides=_parse_overrides(table.get("col_overrides")),
             icons=icons,
+            chart_defs=chart_defs,
             **cls._parse_header_colors(table),
         )
 
@@ -464,6 +613,10 @@ class TableSpec:
         body_default_lvl_raw: object = table.get("body_default_lvl", 0)
         body_default_lvl = _to_int(body_default_lvl_raw) if body_default_lvl_raw is not None else 0
 
+        chart_defs = _parse_charts(data_dict)
+        if all_rows and chart_defs:
+            all_rows = _replace_chart_refs(all_rows)
+
         return cls(
             num_rows=len(all_rows),
             num_cols=body_cols,
@@ -481,6 +634,7 @@ class TableSpec:
             row_overrides=_parse_overrides(table.get("row_overrides")),
             col_overrides=_parse_overrides(table.get("col_overrides")),
             icons=icons,
+            chart_defs=chart_defs,
             **cls._parse_header_colors(table),
         )
 
@@ -569,6 +723,26 @@ class TableSpec:
             headers.append(ColSuperHeader(label=str(label_raw), span=span))
 
         return headers or None
+
+
+# ---------------------------------------------------------------------------
+# Chart ref replacement — convert matching strings in the cell grid
+# ---------------------------------------------------------------------------
+
+
+def _replace_chart_refs(cells: list[list[Any]]) -> list[list[Any]]:
+    """Walk the cell grid and replace ``"chartname-N"`` strings with :class:`ChartRef`."""
+    out: list[list[Any]] = []
+    for row in cells:
+        new_row: list[Any] = []
+        for value in row:
+            ref = parse_chart_ref(value)
+            if ref is not None:
+                new_row.append(ref)
+            else:
+                new_row.append(value)
+        out.append(new_row)
+    return out
 
 
 # ---------------------------------------------------------------------------

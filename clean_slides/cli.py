@@ -75,7 +75,7 @@ from .placeholder import fill_placeholders
 from .renderer import TableRenderer
 from .screenshot import ScreenshotGenerator, crop_region
 from .solver import ConstraintSolver, SolveOptions
-from .spec import ContentArea, TableSpec
+from .spec import ChartRef, ContentArea, TableSpec
 from .template_config import TEMPLATE_CONFIG, set_template_config
 from .text_metrics import EMU_PER_PT, TextMetrics
 
@@ -1706,6 +1706,108 @@ def parse_spec(
     return spec, area, options, placeholders
 
 
+def _validate_chart_refs(spec: TableSpec) -> list[str]:
+    """Validate all chart cell references against chart definitions.
+
+    Returns a list of error messages (empty if valid).
+    """
+    if not spec.chart_defs or spec.cells is None:
+        return []
+
+    errors: list[str] = []
+    chart_defs = spec.chart_defs
+
+    # Collect all refs by chart name → list of (row, col, index)
+    refs_by_chart: dict[str, list[tuple[int, int, int]]] = {}
+    for ri, row in enumerate(spec.cells):
+        for ci, value in enumerate(row):
+            if not isinstance(value, ChartRef):
+                continue
+
+            # 1. Unknown chart name
+            if value.name not in chart_defs:
+                errors.append(
+                    f"Cell ({ri + 1}, {ci + 1}): chart '{value.name}' is not defined in charts:"
+                )
+                continue
+
+            chart = chart_defs[value.name]
+
+            # 2. Index out of range
+            if value.index < 1 or value.index > len(chart.values):
+                errors.append(
+                    f"Cell ({ri + 1}, {ci + 1}): {value.name}-{value.index} "
+                    f"but {value.name} has only {len(chart.values)} values"
+                )
+                continue
+
+            refs_by_chart.setdefault(value.name, []).append((ri, ci, value.index))
+
+    # Per-chart structural validation
+    for chart_name, ref_list in refs_by_chart.items():
+        chart = chart_defs[chart_name]
+        num_values = len(chart.values)
+
+        # 3. Duplicate indices (same chart, same index, different cell)
+        seen_indices: dict[int, tuple[int, int]] = {}
+        for ri, ci, idx in ref_list:
+            if idx in seen_indices:
+                prev_r, prev_c = seen_indices[idx]
+                errors.append(
+                    f"{chart_name}-{idx} appears in cells ({prev_r + 1}, {prev_c + 1}) "
+                    f"and ({ri + 1}, {ci + 1})"
+                )
+            else:
+                seen_indices[idx] = (ri, ci)
+
+        # 4. Index gaps
+        used_indices = sorted(seen_indices.keys())
+        expected = list(range(1, num_values + 1))
+        if used_indices and used_indices != expected[: len(used_indices)]:
+            missing = [i for i in range(1, max(used_indices) + 1) if i not in seen_indices]
+            if missing:
+                errors.append(
+                    f"{chart_name} has indices {used_indices} — missing "
+                    f"{'index' if len(missing) == 1 else 'indices'} {missing}"
+                )
+
+        # 5. Direction mismatch — horizontal charts should span rows (same column),
+        #    vertical charts should span columns (same row)
+        rows_used = sorted(set(r for r, _, _ in ref_list))
+        cols_used = sorted(set(c for _, c, _ in ref_list))
+
+        if chart.dir == "horizontal" and len(cols_used) > 1:
+            errors.append(
+                f"{chart_name} (horizontal) has refs in columns {[c + 1 for c in cols_used]} "
+                f"— expected all in the same column"
+            )
+        elif chart.dir == "vertical" and len(rows_used) > 1:
+            errors.append(
+                f"{chart_name} (vertical) has refs in rows {[r + 1 for r in rows_used]} "
+                f"— expected all in the same row"
+            )
+
+        # 6. Non-contiguous cells
+        if chart.dir == "horizontal" and len(rows_used) > 1:
+            for i in range(len(rows_used) - 1):
+                if rows_used[i + 1] - rows_used[i] != 1:
+                    errors.append(
+                        f"{chart_name} refs in column {cols_used[0] + 1} at rows "
+                        f"{[r + 1 for r in rows_used]} — rows are not contiguous"
+                    )
+                    break
+        elif chart.dir == "vertical" and len(cols_used) > 1:
+            for i in range(len(cols_used) - 1):
+                if cols_used[i + 1] - cols_used[i] != 1:
+                    errors.append(
+                        f"{chart_name} refs in row {rows_used[0] + 1} at columns "
+                        f"{[c + 1 for c in cols_used]} — columns are not contiguous"
+                    )
+                    break
+
+    return errors
+
+
 def validate_spec(data: YamlDict) -> tuple[list[str], list[str]]:
     """Return (errors, warnings)."""
     errors: list[str] = []
@@ -1904,6 +2006,11 @@ def validate_spec(data: YamlDict) -> tuple[list[str], list[str]]:
             warnings.append(
                 "icons.legend contains duplicate colors; legend should map 1:1 with meaning"
             )
+
+    # --- chart cell references ---
+
+    chart_errors = _validate_chart_refs(spec)
+    errors.extend(chart_errors)
 
     return errors, warnings
 
@@ -2154,6 +2261,21 @@ def cmd_generate(args: _GenerateArgs) -> int:
 
             renderer = TableRenderer(spTree, next_shape_id, slide_part=slide.part)
             renderer.render(spec, layout, area)
+
+            # Chart cells: render native chart shapes in merged cell regions
+            if spec.chart_defs:
+                from .chart_render import render_chart_cells
+                from .charts import load_charts_module, resolve_charts_module_path
+
+                charts_path = resolve_charts_module_path(
+                    path, module_path=None
+                )
+                charts_mod = load_charts_module(charts_path)
+                body_pt = layout.body_font_size // 100
+                render_chart_cells(
+                    slide, spec, layout, area, charts_mod,
+                    label_font_size_pt=body_pt,
+                )
 
             # Sidebar: fill secondary content area with formatted paragraphs
             sidebar_raw = data.get("sidebar")
