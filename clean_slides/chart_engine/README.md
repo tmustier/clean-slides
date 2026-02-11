@@ -28,7 +28,9 @@ The code is now split so payload building, styling, overlays, and template opera
 
 ### Overlays and annotations
 - `annotations.py` — textbox/shape/line annotation primitives + waterfall title helper
-- `overlay_bar.py` — bar overlay orchestration (totals/categories/legend/annotations)
+- `overlay_bar.py` — bar overlay orchestration (annotations + helper wiring)
+- `overlay_bar_totals_categories.py` — bar total and category label rendering paths
+- `overlay_bar_legend.py` — bar legend labels and marker rendering
 - `overlay_bar_segments.py` — bar segment-label placement logic
 - `overlay_waterfall.py` — waterfall overlay orchestration (wires geometry/config into specialized helpers)
 - `overlay_waterfall_connectors.py` — waterfall connector segment rendering
@@ -76,6 +78,6 @@ From repo root:
 
 ## Next decomposition targets
 
-- Continue splitting `overlay_bar.py` hotspots (legend rendering vs totals/categories paths).
 - Continue reducing local pyright suppressions by tightening internal helper types.
 - Add dedicated chart-engine smoke tests at the module boundary (builder + overlays).
+- Keep trimming compatibility glue in `chart_generator.py` as typed wrappers absorb more behavior.
