@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 from pptx.chart.data import CategoryChartData
 from pptx.dml.color import RGBColor
@@ -61,7 +62,7 @@ from .spec_utils import (
     safe_value,
     sum_numeric,
 )
-from .units import emu_or_default
+from .units import emu_or_default, resolve_path
 
 BAR_TUNING_KEYS = {
     "totals": "total_label_offset",
@@ -152,6 +153,17 @@ def build_bar_payload(spec: dict) -> tuple[XL_CHART_TYPE, CategoryChartData, dic
     if overlap is None:
         overlap = 100 if stacked else 0
 
+    chart_template_value = bar_cfg.get("chart_template")
+    if isinstance(chart_template_value, Path):
+        chart_template = str(resolve_path(str(chart_template_value), spec.get("_base_dir")))
+    elif isinstance(chart_template_value, str):
+        if chart_template_value.strip():
+            chart_template = str(resolve_path(chart_template_value, spec.get("_base_dir")))
+        else:
+            chart_template = chart_template_value
+    else:
+        chart_template = chart_template_value
+
     return (
         chart_type,
         chart_data,
@@ -168,7 +180,7 @@ def build_bar_payload(spec: dict) -> tuple[XL_CHART_TYPE, CategoryChartData, dic
                 "series_border_color": bar_cfg.get(
                     "series_border_color", DEFAULT_BAR_SERIES_BORDER_COLOR
                 ),
-                "chart_template": bar_cfg.get("chart_template"),
+                "chart_template": chart_template,
                 "chart_template_slide": bar_cfg.get("chart_template_slide", 1),
                 "chart_template_chart_index": bar_cfg.get("chart_template_chart_index", 0),
                 "chart_template_series_index": bar_cfg.get("chart_template_series_index", 0),

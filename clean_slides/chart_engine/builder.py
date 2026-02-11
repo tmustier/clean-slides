@@ -108,7 +108,13 @@ def resolve_series_indices(series_spec, series_names: list[str]) -> list[int]:
 def apply_data_label_style(labels, data_cfg: dict) -> None:
     labels.number_format = data_cfg.get("format", DEFAULT_BAR_DATA_LABEL_FORMAT)
     labels.number_format_is_linked = False
-    labels.font.size = Pt(float(data_cfg.get("font_size", DEFAULT_BAR_DATA_LABEL_FONT_SIZE)))
+
+    font_size = data_cfg.get("font_size", DEFAULT_BAR_DATA_LABEL_FONT_SIZE)
+    if hasattr(font_size, "pt"):
+        labels.font.size = font_size
+    else:
+        labels.font.size = Pt(float(font_size))
+
     label_position = normalize_label_position(data_cfg.get("position"))
     if label_position is not None:
         labels.position = label_position
