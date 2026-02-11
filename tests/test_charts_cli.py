@@ -265,3 +265,22 @@ def test_build_bar_payload_resolves_chart_template_against_base_dir(tmp_path: Pa
 
     expected_template = (base_dir / "templates" / "style.pptx").resolve()
     assert style["bar"]["chart_template"] == str(expected_template)
+
+
+def test_build_bar_payload_keeps_empty_chart_template_disabled(tmp_path: Path) -> None:
+    base_dir = tmp_path / "spec-dir"
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    _chart_type, _chart_data, style = build_bar_payload(
+        {
+            "_base_dir": str(base_dir),
+            "type": "clustered",
+            "categories": ["A"],
+            "series": [{"name": "S1", "values": [1]}],
+            "bar": {
+                "chart_template": "",
+            },
+        }
+    )
+
+    assert style["bar"]["chart_template"] == ""
