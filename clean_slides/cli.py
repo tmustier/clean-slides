@@ -89,6 +89,7 @@ from .cli_project import discover_project_dir as _discover_project_dir
 from .cli_project import discover_template as _discover_template
 from .cli_project import expand_inputs as _expand_inputs
 from .cli_render import cmd_charts, cmd_crop, cmd_render, cmd_screenshot
+from .cli_spec_commands import cmd_preview, cmd_validate, cmd_verify
 from .cli_text import text_preview as _text_preview
 from .cli_text import write_to_shape as _write_to_shape
 from .constants import EMU_PER_INCH, Fonts, FontSizes, Layout, TableDefaults
@@ -97,7 +98,7 @@ from .placeholder import fill_placeholders
 from .renderer import TableRenderer
 from .solver import ConstraintSolver
 from .spec import ContentArea, TableLayout, TableSpec
-from .spec_pipeline import YamlDict, load_yaml, parse_spec, preview_spec, validate_spec
+from .spec_pipeline import YamlDict, load_yaml, parse_spec, validate_spec
 from .template_config import TEMPLATE_CONFIG
 from .text_metrics import EMU_PER_PT, TextMetrics
 
@@ -133,16 +134,6 @@ class _GenerateArgs(_InputArgs, Protocol):
     slide_index: int | None
     keep_existing: bool
     detail: bool
-
-
-class _VerifyArgs(_InputArgs, Protocol):
-    detail: bool
-    json: str | None
-    config: str | None
-
-
-class _ValidateArgs(_InputArgs, Protocol):
-    config: str | None
 
 
 class _InitArgs(Protocol):
@@ -862,84 +853,6 @@ def cmd_init_config(args: _InitConfigArgs) -> int:
         print(output)
 
     return 0
-
-
-def cmd_validate(args: _ValidateArgs) -> int:
-    """Validate schema for YAML files."""
-    _apply_config(args.config)
-
-    input_files = _expand_inputs(args.input)
-    if not input_files:
-        print("No input files found", file=sys.stderr)
-        return 1
-
-    all_valid = True
-    for path in input_files:
-        data = load_yaml(str(path))
-        errors, warnings = validate_spec(data)
-        if errors:
-            all_valid = False
-            print(f"{path}:\n  - " + "\n  - ".join(errors))
-        elif warnings:
-            print(f"{path}:\n  - " + "\n  - ".join(warnings))
-        else:
-            print(f"{path}: OK")
-    return 0 if all_valid else 1
-
-
-def cmd_preview(args: _InputArgs) -> int:
-    """Preview table structure without generating PPTX."""
-    input_files = _expand_inputs(args.input)
-    if not input_files:
-        print("No input files found", file=sys.stderr)
-        return 1
-
-    for path in input_files:
-        data = load_yaml(str(path))
-        print(preview_spec(data))
-    return 0
-
-
-def cmd_verify(args: _VerifyArgs) -> int:
-    """Run layout solver + report without generating PPTX."""
-    _apply_config(args.config)
-
-    input_files = _expand_inputs(args.input)
-    if not input_files:
-        print("No input files found", file=sys.stderr)
-        return 1
-
-    metrics = TextMetrics()
-    solver = ConstraintSolver(metrics)
-
-    for path in input_files:
-        data = load_yaml(str(path))
-        errors, warnings = validate_spec(data)
-        if errors:
-            print(f"{path}:\n  - " + "\n  - ".join(errors), file=sys.stderr)
-            return 1
-        if warnings:
-            print(f"{path}:\n  - " + "\n  - ".join(warnings))
-
-        spec, area, options, placeholders = parse_spec(data)
-        if placeholders:
-            spec = fill_placeholders(spec)
-
-        _, report = solver.solve(spec, area, options)
-        print(f"{path}: {report.to_text(detail=args.detail)}")
-
-        if args.json:
-            output_path = Path(args.json)
-            output_path.write_text(json.dumps(report.to_json(), indent=2))
-
-    return 0
-
-
-
-
-# ============================================================================
-# ARGPARSE SETUP
-# ============================================================================
 
 
 def _build_parser() -> argparse.ArgumentParser:
