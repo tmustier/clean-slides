@@ -94,12 +94,14 @@ class ColumnSizer:
                     {"available": area_width, "minimum": total_min},
                 )
             )
+            self._equalize_chart_cols(spec, min_widths)
             return min_widths, warnings
 
         if total_min == 0:
             w = area_width // max(col_count, 1)
             widths = [w] * col_count
             widths[-1] += area_width - sum(widths)
+            self._equalize_chart_cols(spec, widths)
             return widths, warnings
 
         extra = area_width - total_min
@@ -130,6 +132,7 @@ class ColumnSizer:
                     if len(widths) > 1 and overflow > 0:
                         widths[1:] = self._distribute(widths[1:], overflow, weights[1:])
 
+            self._equalize_chart_cols(spec, widths)
             return widths, warnings
 
         # Default: HTML4 §B.5.2 auto-layout algorithm.
@@ -160,16 +163,17 @@ class ColumnSizer:
             slack = area_width - total_max
             if has_charts and slack > 0:
                 weights = self._column_weights(spec, col_count)
-                result = self._distribute(max_widths, slack, weights)
-                self._equalize_chart_cols(spec, result)
-                return result, warnings
+                max_widths = self._distribute(max_widths, slack, weights)
+            self._equalize_chart_cols(spec, max_widths)
             return max_widths, warnings
 
         # Interpolate between min and max.
         D = total_max - total_min
         if D <= 0:
             weights = self._column_weights(spec, col_count)
-            return self._distribute(min_widths, extra, weights), warnings
+            widths = self._distribute(min_widths, extra, weights)
+            self._equalize_chart_cols(spec, widths)
+            return widths, warnings
 
         widths = min_widths[:]
         allocated = 0
@@ -208,12 +212,20 @@ class ColumnSizer:
                 for ci, cell in enumerate(row):
                     if isinstance(cell, ChartRef) and cell.name == chart_def.name:
                         cols_in_chart.add(ci + col_offset)
-            if len(cols_in_chart) < 2:
+
+            valid_cols = sorted(c for c in cols_in_chart if c < len(widths))
+            if len(valid_cols) < 2:
                 continue
-            avg_w = sum(widths[c] for c in cols_in_chart if c < len(widths)) // len(cols_in_chart)
-            for c in cols_in_chart:
-                if c < len(widths):
-                    widths[c] = avg_w
+
+            combined = sum(widths[c] for c in valid_cols)
+            equal_w = combined // len(valid_cols)
+            for c in valid_cols:
+                widths[c] = equal_w
+
+            # Preserve total width after integer division.
+            remainder = combined - equal_w * len(valid_cols)
+            if remainder:
+                widths[valid_cols[-1]] += remainder
 
     def _min_widths(
         self,
@@ -326,9 +338,7 @@ class ColumnSizer:
             if rhch_sub:
                 max_w = max(
                     max_w,
-                    _longest_word_width(
-                        rhch_sub, fonts.header_font, fonts.header_size_pt, metrics
-                    ),
+                    _longest_word_width(rhch_sub, fonts.header_font, fonts.header_size_pt, metrics),
                 )
 
         # 3. First col superheader label (if it covers this column) — renders at header_size_pt
@@ -370,7 +380,9 @@ class ColumnSizer:
             text, sub_text = header_text_and_sub(header)
             max_w = max(
                 max_w,
-                int(metrics.text_width_no_wrap(text, fonts.header_font, size_pt) * self._BOLD_FACTOR),
+                int(
+                    metrics.text_width_no_wrap(text, fonts.header_font, size_pt) * self._BOLD_FACTOR
+                ),
             )
             if sub_text:
                 max_w = max(
@@ -387,9 +399,7 @@ class ColumnSizer:
             if rhch_sub:
                 max_w = max(
                     max_w,
-                    metrics.text_width_no_wrap(
-                        rhch_sub, fonts.header_font, fonts.header_size_pt
-                    ),
+                    metrics.text_width_no_wrap(rhch_sub, fonts.header_font, fonts.header_size_pt),
                 )
 
         if spec.col_superheaders and spec.col_superheaders[0].label:
@@ -414,7 +424,9 @@ class ColumnSizer:
         text, sub_text = header_text_and_sub(spec.col_headers[col_idx])
         w = _longest_word_width(text, fonts.header_font, fonts.header_size_pt, metrics)
         if sub_text:
-            w = max(w, _longest_word_width(sub_text, fonts.header_font, fonts.header_size_pt, metrics))
+            w = max(
+                w, _longest_word_width(sub_text, fonts.header_font, fonts.header_size_pt, metrics)
+            )
 
         # Similar to row-header logic: avoid clunky single-word lines for
         # multi-word headers by ensuring adjacent word pairs fit.
@@ -465,8 +477,7 @@ class ColumnSizer:
         if not spec.chart_defs:
             return False
         return any(
-            col_idx < len(row) and isinstance(row[col_idx], ChartRef)
-            for row in spec.cells or []
+            col_idx < len(row) and isinstance(row[col_idx], ChartRef) for row in spec.cells or []
         )
 
     def _max_widths(
@@ -932,9 +943,7 @@ class RowSizer:
             # Row header (col 0 when present)
             if spec.has_row_header and not spec.is_grouped:
                 raw_hdr = (
-                    spec.row_headers[ri]
-                    if spec.row_headers and ri < len(spec.row_headers)
-                    else ""
+                    spec.row_headers[ri] if spec.row_headers and ri < len(spec.row_headers) else ""
                 )
                 if raw_hdr:
                     ps = normalize_cell(raw_hdr, hdr_def, parse_bullets=False)
@@ -955,7 +964,12 @@ class RowSizer:
                     row = spec.cells[ri]
                     if ci < len(row):
                         value = row[ci]
-                if value == "" or value is None or is_icon_cell(value) or isinstance(value, ChartRef):
+                if (
+                    value == ""
+                    or value is None
+                    or is_icon_cell(value)
+                    or isinstance(value, ChartRef)
+                ):
                     continue
                 ps = normalize_cell(value, body_def, parse_bullets=spec.parse_bullets)
                 use_lb = should_use_line_breaks(ps)

@@ -22,7 +22,6 @@ from pptx.util import Emu
 
 from .spec import Box, ChartDef, ChartRef, ContentArea, TableLayout, TableSpec
 
-
 # ---------------------------------------------------------------------------
 # Chart group — a set of adjacent ChartRef cells that merge into one shape
 # ---------------------------------------------------------------------------
@@ -140,7 +139,9 @@ def _horizontal_plot_layout(
     return {"x": 0.0, "y": 0.0, "w": round(w_frac, 3), "h": 1.0}
 
 
-def _vertical_plot_layout(chart_height_emu: int, label_font_size_pt: int, has_labels: bool) -> dict[str, float]:
+def _vertical_plot_layout(
+    chart_height_emu: int, label_font_size_pt: int, has_labels: bool
+) -> dict[str, float]:
     """Compute plot layout for a vertical (column) chart.
 
     Reserves exactly enough headroom for outside_end labels above the
@@ -302,13 +303,13 @@ def _python_fmt_to_excel_format(fmt: str, values: list[float]) -> str:
         '{:.1f}x' → '0.0"x"'
         '{:.2f}%' → '0.00"%"'
     """
-    if fmt == "{}" or fmt == "{:.0f}":
+    if fmt == "{}":
         return "General"
 
     import re
 
     # Match {}, {:.<N>f}, {:.0f}, etc.
-    m = re.match(r'^(.*?)\{(?::([^}]*))?\}(.*)$', fmt)
+    m = re.match(r"^(.*?)\{(?::([^}]*))?\}(.*)$", fmt)
     if m is None:
         return "General"
 
@@ -318,7 +319,7 @@ def _python_fmt_to_excel_format(fmt: str, values: list[float]) -> str:
 
     # Determine decimal places from format spec (e.g. ".1f" → 1)
     decimal_places: int | None = None
-    spec_match = re.match(r'\.(\d+)f', format_spec)
+    spec_match = re.match(r"\.(\d+)f", format_spec)
     if spec_match:
         decimal_places = int(spec_match.group(1))
 
@@ -384,7 +385,9 @@ def _set_horizontal_label_offsets(
     regardless of bar length.
     """
     from lxml import etree
-    from pptx.oxml.xmlchemy import OxmlElement  # pyright: ignore[reportUnknownVariableType,reportAttributeAccessIssue]
+    from pptx.oxml.xmlchemy import (
+        OxmlElement,  # pyright: ignore[reportUnknownVariableType,reportAttributeAccessIssue]
+    )
 
     chart_el: etree._Element = chart._element
     ns_c = "http://schemas.openxmlformats.org/drawingml/2006/chart"
@@ -564,13 +567,25 @@ def render_chart_cells(
 
         if group.chart_def.type == "waterfall":
             _render_waterfall_group(
-                slide, group, charts_module,
-                x, y, w, h, label_font_size_pt,
+                slide,
+                group,
+                charts_module,
+                x,
+                y,
+                w,
+                h,
+                label_font_size_pt,
             )
         else:
             _render_bar_group(
-                slide, group, charts_module,
-                x, y, w, h, label_font_size_pt,
+                slide,
+                group,
+                charts_module,
+                x,
+                y,
+                w,
+                h,
+                label_font_size_pt,
             )
 
 
@@ -578,7 +593,10 @@ def _render_bar_group(
     slide: Slide,
     group: ChartGroup,
     charts_module: ModuleType,
-    x: int, y: int, w: int, h: int,
+    x: int,
+    y: int,
+    w: int,
+    h: int,
     label_font_size_pt: int,
 ) -> None:
     """Render a clustered bar chart group."""
@@ -588,8 +606,11 @@ def _render_bar_group(
     has_labels = chart_spec.get("show_data_labels", False)
     if group.chart_def.dir == "horizontal":
         plot_layout = _horizontal_plot_layout(
-            w, label_font_size_pt, has_labels,
-            group.chart_def.values, group.chart_def.format,
+            w,
+            label_font_size_pt,
+            has_labels,
+            group.chart_def.values,
+            group.chart_def.format,
         )
     else:
         plot_layout = _vertical_plot_layout(h, label_font_size_pt, has_labels)
@@ -597,9 +618,7 @@ def _render_bar_group(
 
     chart_type, chart_data, style = charts_module.build_bar_payload(chart_spec)
 
-    chart_frame = slide.shapes.add_chart(
-        chart_type, Emu(x), Emu(y), Emu(w), Emu(h), chart_data
-    )
+    chart_frame = slide.shapes.add_chart(chart_type, Emu(x), Emu(y), Emu(w), Emu(h), chart_data)
     chart = chart_frame.chart
 
     chart.has_legend = False
@@ -637,7 +656,10 @@ def _render_waterfall_group(
     slide: Slide,
     group: ChartGroup,
     charts_module: ModuleType,
-    x: int, y: int, w: int, h: int,
+    x: int,
+    y: int,
+    w: int,
+    h: int,
     label_font_size_pt: int,
 ) -> None:
     """Render a waterfall chart group."""
@@ -649,8 +671,11 @@ def _render_waterfall_group(
     values = _sorted_values(group)
     if group.chart_def.dir == "horizontal":
         plot_layout = _horizontal_plot_layout(
-            w, label_font_size_pt, has_labels,
-            values, group.chart_def.format,
+            w,
+            label_font_size_pt,
+            has_labels,
+            values,
+            group.chart_def.format,
         )
     else:
         plot_layout = _vertical_plot_layout(h, label_font_size_pt, has_labels)
@@ -658,9 +683,7 @@ def _render_waterfall_group(
 
     chart_type, chart_data, style = charts_module.build_waterfall_payload(chart_spec)
 
-    chart_frame = slide.shapes.add_chart(
-        chart_type, Emu(x), Emu(y), Emu(w), Emu(h), chart_data
-    )
+    chart_frame = slide.shapes.add_chart(chart_type, Emu(x), Emu(y), Emu(w), Emu(h), chart_data)
     chart = chart_frame.chart
 
     chart.has_legend = False
@@ -683,5 +706,8 @@ def _render_waterfall_group(
         prs_obj = prs_part.presentation
         slide_size: tuple[int, int] = (int(prs_obj.slide_width), int(prs_obj.slide_height))
         charts_module.add_waterfall_overlays(
-            slide, (x, y, w, h), wf_meta, slide_size=slide_size,
+            slide,
+            (x, y, w, h),
+            wf_meta,
+            slide_size=slide_size,
         )

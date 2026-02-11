@@ -278,9 +278,7 @@ class LayoutVerifier:
 
             for ci in range(spec.num_cols):
                 raw = (
-                    spec.col_headers[ci]
-                    if spec.col_headers and ci < len(spec.col_headers)
-                    else ""
+                    spec.col_headers[ci] if spec.col_headers and ci < len(spec.col_headers) else ""
                 )
                 check(
                     raw,
@@ -296,9 +294,7 @@ class LayoutVerifier:
         if spec.has_row_header:
             for ri in range(spec.num_rows):
                 raw_hdr = (
-                    spec.row_headers[ri]
-                    if spec.row_headers and ri < len(spec.row_headers)
-                    else ""
+                    spec.row_headers[ri] if spec.row_headers and ri < len(spec.row_headers) else ""
                 )
                 check(
                     raw_hdr,

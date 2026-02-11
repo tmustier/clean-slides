@@ -1773,8 +1773,8 @@ def _validate_chart_refs(spec: TableSpec) -> list[str]:
 
         # 5. Direction mismatch — horizontal charts should span rows (same column),
         #    vertical charts should span columns (same row)
-        rows_used = sorted(set(r for r, _, _ in ref_list))
-        cols_used = sorted(set(c for _, c, _ in ref_list))
+        rows_used = sorted({r for r, _, _ in ref_list})
+        cols_used = sorted({c for _, c, _ in ref_list})
 
         if chart.dir == "horizontal" and len(cols_used) > 1:
             errors.append(
@@ -2267,13 +2267,15 @@ def cmd_generate(args: _GenerateArgs) -> int:
                 from .chart_render import render_chart_cells
                 from .charts import load_charts_module, resolve_charts_module_path
 
-                charts_path = resolve_charts_module_path(
-                    path, module_path=None
-                )
+                charts_path = resolve_charts_module_path(path, module_path=None)
                 charts_mod = load_charts_module(charts_path)
                 body_pt = layout.body_font_size // 100
                 render_chart_cells(
-                    slide, spec, layout, area, charts_mod,
+                    slide,
+                    spec,
+                    layout,
+                    area,
+                    charts_mod,
                     label_font_size_pt=body_pt,
                 )
 

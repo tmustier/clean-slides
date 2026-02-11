@@ -63,7 +63,9 @@ class ChartDef:
 
         raw_dir = str(data.get("dir", "vertical"))
         if raw_dir not in ("horizontal", "vertical"):
-            raise ValueError(f"Chart '{name}': dir must be 'horizontal' or 'vertical', got '{raw_dir}'")
+            raise ValueError(
+                f"Chart '{name}': dir must be 'horizontal' or 'vertical', got '{raw_dir}'"
+            )
 
         raw_values: object = data.get("values")
         if not _is_list(raw_values) or not raw_values:
@@ -72,8 +74,8 @@ class ChartDef:
         for i, item in enumerate(raw_values):
             try:
                 values.append(float(item))
-            except (TypeError, ValueError):
-                raise ValueError(f"Chart '{name}': values[{i}] is not a number: {item!r}")
+            except (TypeError, ValueError) as err:
+                raise ValueError(f"Chart '{name}': values[{i}] is not a number: {item!r}") from err
 
         fmt = str(data.get("format", "{}"))
         color_raw = data.get("color")
@@ -430,9 +432,7 @@ class TableSpec:
 
     # Chart definitions — keyed by chart name.  Cell grid may contain
     # ``ChartRef`` objects that reference these.
-    chart_defs: dict[str, ChartDef] = field(
-        default_factory=lambda: dict[str, ChartDef]()
-    )
+    chart_defs: dict[str, ChartDef] = field(default_factory=lambda: dict[str, ChartDef]())
 
     # Header colors — defaults come from template-config.yaml default_colors section.
     # Individual specs can override per table.

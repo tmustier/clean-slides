@@ -3,6 +3,7 @@
 # pyright: reportUnknownMemberType=false
 # pyright: reportAttributeAccessIssue=false
 # pyright: reportUnknownVariableType=false
+# pyright: reportPrivateUsage=false
 
 from __future__ import annotations
 
@@ -12,6 +13,7 @@ from pathlib import Path
 
 from pptx import Presentation
 
+from clean_slides.chart_render import _python_fmt_to_excel_format
 from clean_slides.cli import cmd_generate, cmd_validate
 from clean_slides.constants import Fonts, TableDefaults
 from clean_slides.sizing import ColumnSizer, FontConfig, RowSizer
@@ -24,7 +26,6 @@ from clean_slides.spec import (
     parse_chart_ref,
 )
 from clean_slides.text_metrics import TextMetrics
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -173,6 +174,12 @@ class TestParseCharts(unittest.TestCase):
         assert cd.format == "{}"  # default pass-through format
         assert cd.scale_max is None
         assert cd.label_position is None
+
+
+class TestChartFormatConversion(unittest.TestCase):
+    def test_zero_decimal_format_preserved(self) -> None:
+        excel = _python_fmt_to_excel_format("{:.0f}", [1.2, 2.8])
+        assert excel == "0"
 
 
 # ===================================================================
@@ -383,9 +390,7 @@ def _charts_module_available() -> bool:
 
     if os.getenv("CLEAN_SLIDES_CHARTS_PATH"):
         return True
-    if Path.cwd().joinpath("generate_bar_chart.py").is_file():
-        return True
-    return False
+    return Path.cwd().joinpath("generate_bar_chart.py").is_file()
 
 
 _skip_no_charts = unittest.skipUnless(
