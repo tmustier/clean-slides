@@ -81,18 +81,24 @@ from .cli_inspect import (
     cmd_theme,
     cmd_xml,
 )
-from .cli_render import cmd_charts, cmd_crop, cmd_render
+from .cli_project import CONFIG_NAME as _CONFIG_NAME
+from .cli_project import PROJECT_DIR_NAME
+from .cli_project import TEMPLATE_NAME as _TEMPLATE_NAME
+from .cli_project import apply_config as _apply_config
+from .cli_project import discover_project_dir as _discover_project_dir
+from .cli_project import discover_template as _discover_template
+from .cli_project import expand_inputs as _expand_inputs
+from .cli_render import cmd_charts, cmd_crop, cmd_render, cmd_screenshot
 from .cli_text import text_preview as _text_preview
 from .cli_text import write_to_shape as _write_to_shape
 from .constants import EMU_PER_INCH, Fonts, FontSizes, Layout, TableDefaults
 from .metadata import fill_slide_metadata
 from .placeholder import fill_placeholders
 from .renderer import TableRenderer
-from .screenshot import ScreenshotGenerator
 from .solver import ConstraintSolver
 from .spec import ContentArea, TableLayout, TableSpec
 from .spec_pipeline import YamlDict, load_yaml, parse_spec, preview_spec, validate_spec
-from .template_config import TEMPLATE_CONFIG, set_template_config
+from .template_config import TEMPLATE_CONFIG
 from .text_metrics import EMU_PER_PT, TextMetrics
 
 # ============================================================================
@@ -135,12 +141,6 @@ class _VerifyArgs(_InputArgs, Protocol):
     config: str | None
 
 
-class _ScreenshotArgs(_InputArgs, Protocol):
-    output_dir: str | None
-    slide: int
-    soffice: str | None
-
-
 class _ValidateArgs(_InputArgs, Protocol):
     config: str | None
 
@@ -153,54 +153,6 @@ class _InitArgs(Protocol):
 class _InitConfigArgs(Protocol):
     file: str
     output: str | None
-
-
-# ── Project-level auto-discovery ───────────────────────────────────────
-
-PROJECT_DIR_NAME = ".clean-slides"
-_CONFIG_NAME = "config.yaml"
-_TEMPLATE_NAME = "template.pptx"
-
-
-def _discover_project_dir() -> Path | None:
-    """Walk from CWD to filesystem root looking for a `.clean-slides/` directory."""
-    cur = Path.cwd().resolve()
-    for parent in [cur, *cur.parents]:
-        candidate = parent / PROJECT_DIR_NAME
-        if candidate.is_dir():
-            return candidate
-    return None
-
-
-def _discover_config() -> Path | None:
-    """Return the project config path if auto-discovered."""
-    proj = _discover_project_dir()
-    if proj is not None:
-        cfg = proj / _CONFIG_NAME
-        if cfg.is_file():
-            return cfg
-    return None
-
-
-def _discover_template() -> Path | None:
-    """Return the project template path if auto-discovered."""
-    proj = _discover_project_dir()
-    if proj is not None:
-        tpl = proj / _TEMPLATE_NAME
-        if tpl.is_file():
-            return tpl
-    return None
-
-
-def _apply_config(config_path: str | None) -> None:
-    """Load template config — explicit path, auto-discovered, or built-in defaults."""
-    if config_path is not None:
-        set_template_config(Path(config_path))
-        return
-    # Auto-discover from .clean-slides/
-    discovered = _discover_config()
-    if discovered is not None:
-        set_template_config(discovered)
 
 
 def _content_area_from_layout(slide_layout: SlideLayout) -> ContentArea | None:
@@ -503,17 +455,6 @@ def cmd_batch(args: _BatchArgs) -> int:
 
 
 # YAML parsing/validation helpers now live in clean_slides.spec_pipeline
-
-def _expand_inputs(inputs: list[str]) -> list[Path]:
-    files: list[Path] = []
-    for pattern in inputs:
-        path = Path(pattern)
-        if path.is_file():
-            files.append(path)
-        else:
-            files.extend(Path(".").glob(pattern))
-    return files
-
 
 def _clear_content_area(slide: Slide, area: ContentArea) -> None:
     for shape in list(slide.shapes):
@@ -994,21 +935,6 @@ def cmd_verify(args: _VerifyArgs) -> int:
     return 0
 
 
-def cmd_screenshot(args: _ScreenshotArgs) -> int:
-    """Generate PNG screenshots from PPTX files."""
-    input_files = _expand_inputs(args.input)
-    if not input_files:
-        print("No input files found", file=sys.stderr)
-        return 1
-
-    output_dir = Path(args.output_dir or "outputs/images")
-    generator = ScreenshotGenerator(soffice_path=args.soffice)
-
-    for path in input_files:
-        png_path = generator.capture(Path(path), output_dir, slide_index=args.slide)
-        print(f"{path}: {png_path}")
-
-    return 0
 
 
 # ============================================================================

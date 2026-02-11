@@ -8,7 +8,8 @@ from typing import Protocol
 
 from .cli_common import open_presentation
 from .cli_deck import parse_slide_selection
-from .screenshot import crop_region
+from .cli_project import expand_inputs
+from .screenshot import ScreenshotGenerator, crop_region
 
 
 class FileArgs(Protocol):
@@ -37,6 +38,13 @@ class ChartsArgs(Protocol):
     template: str | None
     layout: str | None
     expected_template: str | None
+
+
+class ScreenshotArgs(Protocol):
+    input: list[str]
+    output_dir: str | None
+    slide: int
+    soffice: str | None
 
 
 def cmd_render(args: RenderArgs) -> int:
@@ -95,4 +103,21 @@ def cmd_charts(args: ChartsArgs) -> int:
         return 1
 
     print(f"Saved → {output_path}")
+    return 0
+
+
+def cmd_screenshot(args: ScreenshotArgs) -> int:
+    """Generate PNG screenshots from PPTX files."""
+    input_files = expand_inputs(args.input)
+    if not input_files:
+        print("No input files found", file=sys.stderr)
+        return 1
+
+    output_dir = Path(args.output_dir or "outputs/images")
+    generator = ScreenshotGenerator(soffice_path=args.soffice)
+
+    for path in input_files:
+        png_path = generator.capture(Path(path), output_dir, slide_index=args.slide)
+        print(f"{path}: {png_path}")
+
     return 0
