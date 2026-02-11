@@ -68,7 +68,6 @@ from .cli_common import is_text_shape as _is_text_shape
 from .cli_common import open_presentation as _open
 from .cli_common import shape_text as _shape_text
 from .cli_deck import cmd_add_slide, cmd_delete_shape, cmd_delete_slide, cmd_insert
-from .cli_deck import parse_slide_selection as _parse_slide_selection
 from .cli_inspect import (
     cmd_chart,
     cmd_color,
@@ -82,13 +81,14 @@ from .cli_inspect import (
     cmd_theme,
     cmd_xml,
 )
+from .cli_render import cmd_charts, cmd_crop, cmd_render
 from .cli_text import text_preview as _text_preview
 from .cli_text import write_to_shape as _write_to_shape
 from .constants import EMU_PER_INCH, Fonts, FontSizes, Layout, TableDefaults
 from .metadata import fill_slide_metadata
 from .placeholder import fill_placeholders
 from .renderer import TableRenderer
-from .screenshot import ScreenshotGenerator, crop_region
+from .screenshot import ScreenshotGenerator
 from .solver import ConstraintSolver
 from .spec import ContentArea, TableLayout, TableSpec
 from .spec_pipeline import YamlDict, load_yaml, parse_spec, preview_spec, validate_spec
@@ -114,30 +114,6 @@ class _EditArgs(_FileArgs, Protocol):
 class _BatchArgs(_FileArgs, Protocol):
     edits: str
     out: str | None
-
-
-class _RenderArgs(_FileArgs, Protocol):
-    slides: str
-    dpi: int
-    out: str | None
-    engine: str | None
-
-
-class _CropArgs(Protocol):
-    png: str
-    left: float
-    top: float
-    right: float
-    bottom: float
-    out: str | None
-
-
-class _ChartsArgs(Protocol):
-    input: str
-    output: str
-    template: str | None
-    layout: str | None
-    expected_template: str | None
 
 
 class _InputArgs(Protocol):
@@ -518,65 +494,6 @@ def cmd_batch(args: _BatchArgs) -> int:
 # ============================================================================
 # RENDER COMMANDS
 # ============================================================================
-
-
-def cmd_render(args: _RenderArgs) -> int:
-    from .screenshot import render_slides
-
-    prs = _open(args.file)
-    total = len(prs.slides)
-    try:
-        slide_nums = _parse_slide_selection(args.slides, total)
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    paths = render_slides(
-        args.file,
-        slide_nums,
-        dpi=args.dpi,
-        output_dir=args.out,
-        engine=args.engine,
-    )
-    for p in paths:
-        print(p)
-    return 0
-
-
-def cmd_crop(args: _CropArgs) -> int:
-    result = crop_region(
-        args.png,
-        args.left,
-        args.top,
-        args.right,
-        args.bottom,
-        output_path=args.out,
-    )
-    print(result)
-    return 0
-
-
-def cmd_charts(args: _ChartsArgs) -> int:
-    from .charts import generate_charts_from_json
-
-    input_path = Path(args.input)
-    output_path = Path(args.output)
-    template_path = Path(args.template) if args.template else None
-
-    try:
-        generate_charts_from_json(
-            input_path,
-            output_path,
-            template=template_path,
-            layout=args.layout,
-            expected_template=args.expected_template,
-        )
-    except (FileNotFoundError, ImportError) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
-
-    print(f"Saved → {output_path}")
-    return 0
 
 
 # ============================================================================
