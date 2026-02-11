@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import json
 from typing import TYPE_CHECKING
 
@@ -40,6 +39,52 @@ def _expand_newlines(result: list[TextRun], text: str, opts: RunOverridesMap) ->
             result.append((part, opts))
 
 
+def _parse_runs_candidate(text: object) -> list[object] | None:
+    if _is_object_list(text):
+        return text
+
+    if isinstance(text, str) and text.startswith("["):
+        try:
+            parsed: object = json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            return None
+
+        if _is_object_list(parsed):
+            return parsed
+
+    return None
+
+
+def _parse_run_item(item: object) -> tuple[str, RunOverridesMap] | None:
+    if isinstance(item, str):
+        return item, {}
+
+    if _is_object_list(item):
+        run_text = str(item[0]) if len(item) > 0 else ""
+        opts_raw: object = item[1] if len(item) > 1 else {}
+        return run_text, _coerce_overrides(opts_raw)
+
+    if _is_str_object_dict(item) and "text" in item:
+        run_text = str(item.get("text", ""))
+        opts = {k: v for k, v in item.items() if k != "text"}
+        return run_text, opts
+
+    return None
+
+
+def _parse_plain_text_runs(text: object) -> list[TextRun]:
+    text_str = text if isinstance(text, str) else str(text)
+    normalized = text_str.replace("\n", "\\n")
+
+    result: list[TextRun] = []
+    for i, line in enumerate(normalized.split("\\n")):
+        if i > 0:
+            result.append(("\n", {}))
+        result.append((line, {}))
+
+    return result
+
+
 def parse_text_arg(text: object) -> list[TextRun]:
     """
     Parse text argument into list of (text, overrides) tuples.
@@ -49,50 +94,17 @@ def parse_text_arg(text: object) -> list[TextRun]:
         "Line 1\\nLine 2"                            → with line breaks
         [["Bold ", {"bold": true}], [" normal"]]    → JSON runs
     """
-
-    runs: list[object] | None = None
-
-    if _is_object_list(text):
-        runs = text
-    elif isinstance(text, str) and text.startswith("["):
-        try:
-            parsed: object = json.loads(text)
-        except (json.JSONDecodeError, ValueError):
-            parsed = None
-
-        if _is_object_list(parsed):
-            runs = parsed
-
-    if runs is not None:
-        result: list[TextRun] = []
-
-        for item in runs:
-            if isinstance(item, str):
-                t = item
-                opts: RunOverridesMap = {}
-            elif _is_object_list(item):
-                t = str(item[0]) if len(item) > 0 else ""
-                opts_raw: object = item[1] if len(item) > 1 else {}
-                opts = _coerce_overrides(opts_raw)
-            elif _is_str_object_dict(item) and "text" in item:
-                t = str(item.get("text", ""))
-                opts = {k: v for k, v in item.items() if k != "text"}
-            else:
-                continue
-
-            _expand_newlines(result, t, opts)
-
-        return result
-
-    text_str = text if isinstance(text, str) else str(text)
-    normalized = text_str.replace("\n", "\\n")
+    runs = _parse_runs_candidate(text)
+    if runs is None:
+        return _parse_plain_text_runs(text)
 
     result: list[TextRun] = []
-    lines = normalized.split("\\n")
-    for i, line in enumerate(lines):
-        if i > 0:
-            result.append(("\n", {}))
-        result.append((line, {}))
+    for item in runs:
+        parsed_run = _parse_run_item(item)
+        if parsed_run is None:
+            continue
+        run_text, opts = parsed_run
+        _expand_newlines(result, run_text, opts)
 
     return result
 
@@ -113,6 +125,65 @@ def is_paragraphs_format(text_arg: object) -> bool:
     return False
 
 
+def _to_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+
+    if isinstance(value, (int, float, str)):
+        try:
+            return int(value)
+        except ValueError:
+            return None
+
+    return None
+
+
+def _to_float(value: object) -> float | None:
+    if isinstance(value, bool):
+        return None
+
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    return None
+
+
+def _parse_paragraph(p_obj: object) -> ParagraphSpec | None:
+    if not _is_str_object_dict(p_obj):
+        return None
+
+    para: ParagraphSpec = {}
+
+    if "runs" in p_obj:
+        para["runs"] = p_obj["runs"]
+
+    level = _to_int(p_obj.get("level"))
+    if level is not None:
+        para["level"] = level
+
+    alignment_raw = p_obj.get("alignment")
+    if isinstance(alignment_raw, str):
+        para["alignment"] = alignment_raw
+
+    spacing_before = _to_float(p_obj.get("spacing_before"))
+    if spacing_before is not None:
+        para["spacing_before"] = spacing_before
+
+    spacing_after = _to_float(p_obj.get("spacing_after"))
+    if spacing_after is not None:
+        para["spacing_after"] = spacing_after
+
+    line_spacing = _to_float(p_obj.get("line_spacing"))
+    if line_spacing is not None:
+        para["line_spacing"] = line_spacing
+
+    bullet_raw = p_obj.get("bullet")
+    if isinstance(bullet_raw, (bool, str)):
+        para["bullet"] = bullet_raw
+
+    return para
+
+
 def parse_paragraphs_arg(text_arg: object) -> list[ParagraphSpec]:
     """Parse a multi-paragraph spec."""
 
@@ -128,48 +199,10 @@ def parse_paragraphs_arg(text_arg: object) -> list[ParagraphSpec]:
         raise ValueError("paragraphs spec missing 'paragraphs' list")
 
     paragraphs: list[ParagraphSpec] = []
-
     for p_obj in paragraphs_raw:
-        if not _is_str_object_dict(p_obj):
-            continue
-
-        para: ParagraphSpec = {}
-
-        if "runs" in p_obj:
-            para["runs"] = p_obj["runs"]
-
-        if "level" in p_obj:
-            level_raw = p_obj["level"]
-            if isinstance(level_raw, (int, float, str)) and not isinstance(level_raw, bool):
-                with contextlib.suppress(ValueError):
-                    para["level"] = int(level_raw)
-
-        if "alignment" in p_obj:
-            alignment_raw = p_obj["alignment"]
-            if isinstance(alignment_raw, str):
-                para["alignment"] = alignment_raw
-
-        if "spacing_before" in p_obj:
-            sb_raw = p_obj["spacing_before"]
-            if isinstance(sb_raw, (int, float)) and not isinstance(sb_raw, bool):
-                para["spacing_before"] = float(sb_raw)
-
-        if "spacing_after" in p_obj:
-            sa_raw = p_obj["spacing_after"]
-            if isinstance(sa_raw, (int, float)) and not isinstance(sa_raw, bool):
-                para["spacing_after"] = float(sa_raw)
-
-        if "line_spacing" in p_obj:
-            ls_raw = p_obj["line_spacing"]
-            if isinstance(ls_raw, (int, float)) and not isinstance(ls_raw, bool):
-                para["line_spacing"] = float(ls_raw)
-
-        if "bullet" in p_obj:
-            bullet_raw = p_obj["bullet"]
-            if isinstance(bullet_raw, (bool, str)):
-                para["bullet"] = bullet_raw
-
-        paragraphs.append(para)
+        para = _parse_paragraph(p_obj)
+        if para is not None:
+            paragraphs.append(para)
 
     return paragraphs
 
@@ -199,6 +232,29 @@ def write_to_shape(shape: Shape, text_arg: object) -> None:
         add_run(p, text, **merged)
 
 
+def _preview_fragment_text(fragment: object) -> str:
+    if isinstance(fragment, str):
+        return fragment
+
+    if _is_str_object_dict(fragment) and "text" in fragment:
+        return str(fragment.get("text", ""))
+
+    if _is_object_list(fragment):
+        return str(fragment[0]) if len(fragment) > 0 else ""
+
+    return str(fragment)
+
+
+def _preview_runs_value(runs: object) -> str:
+    if isinstance(runs, str):
+        return runs
+
+    if _is_object_list(runs):
+        return "".join(_preview_fragment_text(fragment) for fragment in runs)
+
+    return str(runs)
+
+
 def text_preview(text_arg: object) -> str:
     """Compact preview for before/after display."""
 
@@ -206,36 +262,16 @@ def text_preview(text_arg: object) -> str:
         paras = parse_paragraphs_arg(text_arg)
         parts: list[str] = []
 
-        for p in paras:
-            lvl = p.get("level", 0)
-            prefix = "  " * lvl + ("• " if lvl > 0 else "")
-            runs = p.get("runs", "")
-
-            if isinstance(runs, str):
-                parts.append(f"{prefix}{runs}")
-                continue
-
-            run_texts: list[str] = []
-            if _is_object_list(runs):
-                for r in runs:
-                    if isinstance(r, str):
-                        run_texts.append(r)
-                    elif _is_str_object_dict(r) and "text" in r:
-                        run_texts.append(str(r.get("text", "")))
-                    elif _is_object_list(r):
-                        run_texts.append(str(r[0]) if len(r) > 0 else "")
-                    else:
-                        run_texts.append(str(r))
-            else:
-                run_texts.append(str(runs))
-
-            parts.append(f"{prefix}{''.join(run_texts)}")
+        for para in paras:
+            level = para.get("level", 0)
+            prefix = "  " * level + ("• " if level > 0 else "")
+            runs = para.get("runs", "")
+            parts.append(f"{prefix}{_preview_runs_value(runs)}")
 
         return " ¶ ".join(parts)
 
-    runs = parse_text_arg(text_arg)
     parts: list[str] = []
-    for text, opts in runs:
+    for text, opts in parse_text_arg(text_arg):
         if text == "\n":
             parts.append("\\n")
         elif opts:
