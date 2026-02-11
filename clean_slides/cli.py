@@ -48,18 +48,11 @@ Slide numbers are 1-indexed for inspect/edit, 0-indexed for generate --slide-ind
 from __future__ import annotations
 
 import argparse
-import json
 import sys
-from typing import Protocol
 
-from .cli_common import find_shape as _find_shape
-from .cli_common import get_slide as _get_slide
-from .cli_common import is_text_shape as _is_text_shape
-from .cli_common import open_presentation as _open
-from .cli_common import shape_text as _shape_text
 from .cli_deck import cmd_add_slide, cmd_delete_shape, cmd_delete_slide, cmd_insert
+from .cli_edit import cmd_batch, cmd_edit
 from .cli_generate import cmd_generate
-from .cli_generate import warn_placeholder_text_limits as _warn_placeholder_text_limits
 from .cli_inspect import (
     cmd_chart,
     cmd_color,
@@ -76,106 +69,6 @@ from .cli_inspect import (
 from .cli_render import cmd_charts, cmd_crop, cmd_render, cmd_screenshot
 from .cli_spec_commands import cmd_preview, cmd_validate, cmd_verify
 from .cli_template import cmd_init, cmd_init_config
-from .cli_text import text_preview as _text_preview
-from .cli_text import write_to_shape as _write_to_shape
-
-# ============================================================================
-# SHARED HELPERS
-# ============================================================================
-
-
-class _FileArgs(Protocol):
-    file: str
-
-
-class _EditArgs(_FileArgs, Protocol):
-    slide: str
-    shape: str
-    text: str
-    out: str | None
-
-
-class _BatchArgs(_FileArgs, Protocol):
-    edits: str
-    out: str | None
-
-
-
-
-# ============================================================================
-# EDIT COMMANDS
-# ============================================================================
-
-
-def cmd_edit(args: _EditArgs) -> int:
-    prs = _open(args.file)
-    slide = _get_slide(prs, args.slide)
-    shape_raw = _find_shape(slide, args.shape)
-
-    if not _is_text_shape(shape_raw):
-        print(f"Error: shape '{args.shape}' has no text frame", file=sys.stderr)
-        return 1
-
-    shape = shape_raw
-
-    before = _shape_text(shape)
-    out_path = args.out or args.file
-
-    print(f"Before: {before}")
-    print(f"After:  {_text_preview(args.text)}")
-
-    _write_to_shape(shape, args.text)
-    _warn_placeholder_text_limits(slide, shape)
-
-    prs.save(out_path)
-    print(f"Saved → {out_path}")
-    return 0
-
-
-def cmd_batch(args: _BatchArgs) -> int:
-    prs = _open(args.file)
-    out_path = args.out or args.file
-
-    if args.edits == "-":
-        edits = json.load(sys.stdin)
-    else:
-        with open(args.edits) as f:
-            edits = json.load(f)
-
-    for idx, edit in enumerate(edits):
-        slide_num = edit["slide"]
-        shape_id = str(edit["shape"])
-        text_arg = edit["text"]
-
-        slide = _get_slide(prs, str(slide_num))
-        shape_raw = _find_shape(slide, shape_id)
-
-        if not _is_text_shape(shape_raw):
-            print(f"  [{idx+1}] SKIP {shape_id} — no text frame", file=sys.stderr)
-            continue
-
-        shape = shape_raw
-
-        before = _shape_text(shape)
-        _write_to_shape(shape, text_arg)
-
-        print(f"  [{idx+1}] slide {slide_num} / {shape.name}")
-        print(f"      Before: {before}")
-        print(f"      After:  {_text_preview(text_arg)}")
-
-    prs.save(out_path)
-    print(f"Saved → {out_path}  ({len(edits)} edits)")
-    return 0
-
-
-# ============================================================================
-# SLIDE MANAGEMENT COMMANDS
-# ============================================================================
-
-
-# ============================================================================
-# RENDER COMMANDS
-# ============================================================================
 
 
 def _build_parser() -> argparse.ArgumentParser:
