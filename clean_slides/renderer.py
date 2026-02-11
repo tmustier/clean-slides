@@ -26,10 +26,10 @@ from .constants import (
     Layout,
     TableDefaults,
 )
-from .content import Paragraph, normalize_cell
+from .content import Paragraph, _make_sub_paragraph, normalize_cell
 from .icons import IconSet, icon_cell_value
 from .measure import column_right_pads, should_use_line_breaks, textbox_width
-from .spec import Box, CellOverride, ContentArea, TableLayout, TableSpec
+from .spec import Box, CellOverride, ChartRef, ContentArea, TableLayout, TableSpec
 from .text_metrics import EMU_PER_PT
 from .xml_helpers import (
     create_line_xml,
@@ -209,12 +209,15 @@ class TableRenderer:
                     divider_w = w - self._col_right_pads[last_col_in_span]
 
                 paragraphs = normalize_cell(csh.label, default, parse_bullets=False)
+                if csh.sub:
+                    paragraphs.append(_make_sub_paragraph(csh.sub, paragraphs[0]))
                 self._add_cell(
                     box,
                     paragraphs,
                     anchor="b",
                     pad_top=layout.pad_top,
                     pad_bottom=layout.pad_bottom,
+                    use_line_breaks=True,
                 )
                 self._add_line(x, line_y, divider_w, int(Dividers.HEADER), DefaultColors.DIVIDER)
             grid_col += csh.span
@@ -246,6 +249,7 @@ class TableRenderer:
                 pad_top=layout.pad_top,
                 pad_bottom=layout.pad_bottom,
                 right_pad=self._col_right_pads[0],
+                use_line_breaks=True,
             )
 
         col_headers = spec.col_headers
@@ -262,6 +266,7 @@ class TableRenderer:
                 pad_top=layout.pad_top,
                 pad_bottom=layout.pad_bottom,
                 right_pad=self._col_right_pads[grid_col],
+                use_line_breaks=True,
             )
 
         header_bottom_y = area.y + sum(layout.row_heights[: header_grid_row + 1])
@@ -375,6 +380,10 @@ class TableRenderer:
 
             for ci in range(spec.num_cols):
                 value: object = row[ci] if ci < len(row) else ""
+
+                # Chart ref cell → skip text rendering; charts are rendered separately
+                if isinstance(value, ChartRef):
+                    continue
 
                 # Icon cell → render colored oval instead of text box
                 icon_name = icon_cell_value(value)

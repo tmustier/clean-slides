@@ -7,7 +7,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any
 
-from .spec import TableSpec
+from .spec import ChartRef, TableSpec
 
 TITLE_WORDS: list[str] = [
     "Placeholder",
@@ -80,9 +80,13 @@ def fill_placeholders(spec: TableSpec) -> TableSpec:
         new_row: list[Any] = []
         for c in range(spec.num_cols):
             value = row[c] if c < len(row) else ""
-            if not value:
-                value = placeholder_body()
-            new_row.append(value)
+            # Chart references are not text — leave them as-is
+            if isinstance(value, ChartRef):
+                new_row.append(value)
+            elif not value:
+                new_row.append(placeholder_body())
+            else:
+                new_row.append(value)
         filled_cells.append(new_row)
 
     return replace(

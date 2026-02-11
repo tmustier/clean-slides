@@ -13,7 +13,7 @@ from typing import Any
 from typing_extensions import TypeGuard
 
 from .constants import BULLET_MARGINS, TableDefaults
-from .content import Paragraph, normalize_cell
+from .content import Paragraph, header_text_and_sub, normalize_cell
 from .measure import (
     cell_content_height,
     column_right_pads,
@@ -21,7 +21,7 @@ from .measure import (
     text_width_for_level,
     textbox_width,
 )
-from .spec import TableSpec, is_icon_cell
+from .spec import ChartRef, TableSpec, is_icon_cell
 from .text_metrics import EMU_PER_PT, TextMetrics
 
 
@@ -94,12 +94,14 @@ class ColumnSizer:
                     {"available": area_width, "minimum": total_min},
                 )
             )
+            self._equalize_chart_cols(spec, min_widths)
             return min_widths, warnings
 
         if total_min == 0:
             w = area_width // max(col_count, 1)
             widths = [w] * col_count
             widths[-1] += area_width - sum(widths)
+            self._equalize_chart_cols(spec, widths)
             return widths, warnings
 
         extra = area_width - total_min
@@ -130,6 +132,7 @@ class ColumnSizer:
                     if len(widths) > 1 and overflow > 0:
                         widths[1:] = self._distribute(widths[1:], overflow, weights[1:])
 
+            self._equalize_chart_cols(spec, widths)
             return widths, warnings
 
         # Default: HTML4 §B.5.2 auto-layout algorithm.
@@ -153,14 +156,24 @@ class ColumnSizer:
         total_max = sum(max_widths)
 
         if total_max <= area_width:
-            # Everything fits without wrapping — use max widths directly.
+            # Everything fits without wrapping.  When chart columns exist
+            # distribute the remaining slack so the table fills the area
+            # (chart cells expand to use whatever space is available).
+            has_charts = bool(spec.chart_defs)
+            slack = area_width - total_max
+            if has_charts and slack > 0:
+                weights = self._column_weights(spec, col_count)
+                max_widths = self._distribute(max_widths, slack, weights)
+            self._equalize_chart_cols(spec, max_widths)
             return max_widths, warnings
 
         # Interpolate between min and max.
         D = total_max - total_min
         if D <= 0:
             weights = self._column_weights(spec, col_count)
-            return self._distribute(min_widths, extra, weights), warnings
+            widths = self._distribute(min_widths, extra, weights)
+            self._equalize_chart_cols(spec, widths)
+            return widths, warnings
 
         widths = min_widths[:]
         allocated = 0
@@ -171,9 +184,48 @@ class ColumnSizer:
             allocated += add
         widths[-1] += extra - allocated
 
+        # Equalize columns spanned by vertical charts (bars are equal width
+        # regardless of column sizing, so spanned columns must match).
+        self._equalize_chart_cols(spec, widths)
+
         return widths, warnings
 
     # -- helpers --
+
+    @staticmethod
+    def _equalize_chart_cols(spec: TableSpec, widths: list[int]) -> None:
+        """Make columns spanned by the same vertical chart equal width.
+
+        A vertical chart distributes bars equally across its span.
+        If spanned columns differ in width the bars won't align with
+        column boundaries.
+        """
+        if not spec.chart_defs or not spec.cells:
+            return
+
+        col_offset = spec.col_offset
+        for chart_def in spec.chart_defs.values():
+            if chart_def.dir != "vertical":
+                continue
+            cols_in_chart: set[int] = set()
+            for row in spec.cells:
+                for ci, cell in enumerate(row):
+                    if isinstance(cell, ChartRef) and cell.name == chart_def.name:
+                        cols_in_chart.add(ci + col_offset)
+
+            valid_cols = sorted(c for c in cols_in_chart if c < len(widths))
+            if len(valid_cols) < 2:
+                continue
+
+            combined = sum(widths[c] for c in valid_cols)
+            equal_w = combined // len(valid_cols)
+            for c in valid_cols:
+                widths[c] = equal_w
+
+            # Preserve total width after integer division.
+            remainder = combined - equal_w * len(valid_cols)
+            if remainder:
+                widths[valid_cols[-1]] += remainder
 
     def _min_widths(
         self,
@@ -233,10 +285,12 @@ class ColumnSizer:
             fonts.effective_row_superheader_size_pt if spec.is_grouped else fonts.header_size_pt
         )
         for header in spec.row_headers or []:
-            text = str(header)
+            text, sub_text = header_text_and_sub(header)
 
             # Default min width is driven by the longest unbreakable token.
             w = max(_longest_word_width(text, fonts.header_font, size_pt, metrics), 1)
+            if sub_text:
+                w = max(w, _longest_word_width(sub_text, fonts.header_font, size_pt, metrics))
 
             # UX tweak: avoid clunky wraps like
             #
@@ -276,10 +330,16 @@ class ColumnSizer:
 
         # 2. row_header_col_header — renders at header_size_pt
         if spec.row_header_col_header:
-            text = str(spec.row_header_col_header)
+            rhch_text, rhch_sub = header_text_and_sub(spec.row_header_col_header)
             max_w = max(
-                max_w, _longest_word_width(text, fonts.header_font, fonts.header_size_pt, metrics)
+                max_w,
+                _longest_word_width(rhch_text, fonts.header_font, fonts.header_size_pt, metrics),
             )
+            if rhch_sub:
+                max_w = max(
+                    max_w,
+                    _longest_word_width(rhch_sub, fonts.header_font, fonts.header_size_pt, metrics),
+                )
 
         # 3. First col superheader label (if it covers this column) — renders at header_size_pt
         if spec.col_superheaders and spec.col_superheaders[0].label:
@@ -291,6 +351,11 @@ class ColumnSizer:
         # Safety margin: PowerPoint/LibreOffice text shaping is slightly wider
         max_w = int(max_w * _MIN_WIDTH_SAFETY)
         return max(max_w, 1)
+
+    # Bold text is ~10% wider than regular. The text metric doesn't
+    # model weight, so we apply a fudge factor for bold columns
+    # (row headers, superheaders).
+    _BOLD_FACTOR: float = 1.10
 
     def _row_header_preferred_width(
         self,
@@ -312,20 +377,30 @@ class ColumnSizer:
             fonts.effective_row_superheader_size_pt if spec.is_grouped else fonts.header_size_pt
         )
         for header in spec.row_headers or []:
+            text, sub_text = header_text_and_sub(header)
             max_w = max(
                 max_w,
-                metrics.text_width_no_wrap(str(header), fonts.header_font, size_pt),
-            )
-
-        if spec.row_header_col_header:
-            max_w = max(
-                max_w,
-                metrics.text_width_no_wrap(
-                    str(spec.row_header_col_header),
-                    fonts.header_font,
-                    fonts.header_size_pt,
+                int(
+                    metrics.text_width_no_wrap(text, fonts.header_font, size_pt) * self._BOLD_FACTOR
                 ),
             )
+            if sub_text:
+                max_w = max(
+                    max_w,
+                    int(metrics.text_width_no_wrap(sub_text, fonts.header_font, size_pt)),
+                )
+
+        if spec.row_header_col_header:
+            rhch_text, rhch_sub = header_text_and_sub(spec.row_header_col_header)
+            max_w = max(
+                max_w,
+                metrics.text_width_no_wrap(rhch_text, fonts.header_font, fonts.header_size_pt),
+            )
+            if rhch_sub:
+                max_w = max(
+                    max_w,
+                    metrics.text_width_no_wrap(rhch_sub, fonts.header_font, fonts.header_size_pt),
+                )
 
         if spec.col_superheaders and spec.col_superheaders[0].label:
             max_w = max(
@@ -346,8 +421,12 @@ class ColumnSizer:
         if not spec.has_col_header or not spec.col_headers:
             return 0
 
-        text = str(spec.col_headers[col_idx])
+        text, sub_text = header_text_and_sub(spec.col_headers[col_idx])
         w = _longest_word_width(text, fonts.header_font, fonts.header_size_pt, metrics)
+        if sub_text:
+            w = max(
+                w, _longest_word_width(sub_text, fonts.header_font, fonts.header_size_pt, metrics)
+            )
 
         # Similar to row-header logic: avoid clunky single-word lines for
         # multi-word headers by ensuring adjacent word pairs fit.
@@ -373,7 +452,10 @@ class ColumnSizer:
         for row in spec.cells or []:
             if col_idx >= len(row):
                 continue
-            for p in normalize_cell(row[col_idx], body_default, parse_bullets=spec.parse_bullets):
+            cell_val = row[col_idx]
+            if isinstance(cell_val, ChartRef):
+                continue
+            for p in normalize_cell(cell_val, body_default, parse_bullets=spec.parse_bullets):
                 lvl = p.lvl or 0
                 margin = BULLET_MARGINS.get(lvl + 1, (0, 0, 0))[0]
                 w = _longest_word_width(
@@ -388,6 +470,15 @@ class ColumnSizer:
         if not spec.icons:
             return False
         return any(col_idx < len(row) and is_icon_cell(row[col_idx]) for row in spec.cells or [])
+
+    @staticmethod
+    def _is_chart_column(spec: TableSpec, col_idx: int) -> bool:
+        """Return True if *col_idx* contains at least one chart ref cell."""
+        if not spec.chart_defs:
+            return False
+        return any(
+            col_idx < len(row) and isinstance(row[col_idx], ChartRef) for row in spec.cells or []
+        )
 
     def _max_widths(
         self,
@@ -424,18 +515,29 @@ class ColumnSizer:
 
             header_w = 0
             if spec.has_col_header and spec.col_headers and col_idx < len(spec.col_headers):
+                hdr_text, hdr_sub = header_text_and_sub(spec.col_headers[col_idx])
                 header_w = metrics.text_width_no_wrap(
-                    str(spec.col_headers[col_idx]),
+                    hdr_text,
                     fonts.header_font,
                     fonts.header_size_pt,
                 )
+                if hdr_sub:
+                    header_w = max(
+                        header_w,
+                        metrics.text_width_no_wrap(
+                            hdr_sub, fonts.header_font, fonts.header_size_pt
+                        ),
+                    )
 
             body_w = 0
             for row in spec.cells or []:
                 if col_idx >= len(row):
                     continue
+                cell_val = row[col_idx]
+                if isinstance(cell_val, ChartRef):
+                    continue
                 for p in normalize_cell(
-                    row[col_idx],
+                    cell_val,
                     body_default,
                     parse_bullets=spec.parse_bullets,
                 ):
@@ -447,6 +549,14 @@ class ColumnSizer:
                         p.size_pt or fonts.body_size_pt,
                     )
                     body_w = max(body_w, w + margin)
+
+            # Chart-only columns: the chart fills whatever space is given.
+            # Use header width as the preferred size (not an equal share) so
+            # that text-only columns keep enough room.  The distribution step
+            # will expand chart columns with remaining slack.
+            is_chart = self._is_chart_column(spec, col_idx)
+            if is_chart and body_w == 0:
+                body_w = header_w  # 0 is fine — min_width guarantees a floor
 
             floor = icon_min if is_icon else 1
             raw = int(max(header_w, body_w, floor) * _MIN_WIDTH_SAFETY)
@@ -584,6 +694,10 @@ class RowSizer:
             h = max(int(body_area * req / total_req), min_h)
             body_heights.append(h)
 
+        # Equalize rows spanned by horizontal charts (bars are equal height
+        # regardless of text content, so the rows must match).
+        self._equalize_chart_rows(spec, body_heights)
+
         # Fix rounding: adjust last row to consume exactly body_area
         allocated = sum(body_heights)
         if body_heights:
@@ -654,10 +768,17 @@ class RowSizer:
         pad_top: int,
         pad_bottom: int,
     ) -> int:
-        """Compact single-line row for column superheaders."""
+        """Compact row for column superheaders (1–2 lines depending on sub)."""
         line_h = int(fonts.header_size_pt * EMU_PER_PT * TableDefaults.LINE_SPACING * metrics.fudge)
+        max_lines = 1
+        if spec.col_superheaders:
+            for csh in spec.col_superheaders:
+                lines = 1
+                if csh.sub:
+                    lines += 1
+                max_lines = max(max_lines, lines)
         # Minimal vertical padding — just enough to separate from content above
-        return line_h + pad_top
+        return line_h * max_lines + pad_top
 
     def _header_height(
         self,
@@ -673,24 +794,25 @@ class RowSizer:
 
         # Include row_header_col_header in line count if present
         if spec.row_header_col_header and spec.has_row_header:
-            text = str(spec.row_header_col_header)
+            rhch_text, rhch_sub = header_text_and_sub(spec.row_header_col_header)
             w = text_width_for_level(col_widths[0], 0)
-            max_lines = max(
-                max_lines,
-                metrics.lines_needed(text, w, fonts.header_font, fonts.header_size_pt) or 1,
-            )
+            lines = metrics.lines_needed(rhch_text, w, fonts.header_font, fonts.header_size_pt) or 1
+            if rhch_sub:
+                lines += 1
+            max_lines = max(max_lines, lines)
 
         for col_idx in range(spec.num_cols):
-            text = (
-                str(spec.col_headers[col_idx])
+            raw = (
+                spec.col_headers[col_idx]
                 if spec.col_headers and col_idx < len(spec.col_headers)
                 else ""
             )
+            text, sub_text = header_text_and_sub(raw)
             w = text_width_for_level(col_widths[col_idx + col_offset], 0)
-            max_lines = max(
-                max_lines,
-                metrics.lines_needed(text, w, fonts.header_font, fonts.header_size_pt) or 1,
-            )
+            lines = metrics.lines_needed(text, w, fonts.header_font, fonts.header_size_pt) or 1
+            if sub_text:
+                lines += 1
+            max_lines = max(max_lines, lines)
 
         # Fit header row to content: at least 1 line, capped
         lines = min(max(max_lines, 1), TableDefaults.MAX_HEADER_LINES)
@@ -702,6 +824,41 @@ class RowSizer:
             return lines * line_h + pad_top // 2 + pad_bottom
         else:
             return lines * line_h + pad_top + pad_bottom + spc
+
+    @staticmethod
+    def _equalize_chart_rows(spec: TableSpec, body_heights: list[int]) -> None:
+        """Make rows spanned by horizontal charts equal height.
+
+        A horizontal chart distributes bars equally across its span.
+        If the spanned rows have different heights (because of varying
+        text content in non-chart columns), the bars won't align with
+        the row boundaries.  The spanned rows get equal shares of their
+        combined area so total height is preserved.
+        """
+        if not spec.chart_defs or not spec.cells:
+            return
+
+        for chart_def in spec.chart_defs.values():
+            if chart_def.dir != "horizontal":
+                continue
+            rows_in_chart: set[int] = set()
+            for ri, row in enumerate(spec.cells):
+                for cell in row:
+                    if isinstance(cell, ChartRef) and cell.name == chart_def.name:
+                        rows_in_chart.add(ri)
+                        break
+            if len(rows_in_chart) < 2:
+                continue
+            # Equal share of the combined area (preserves total height)
+            valid = [r for r in rows_in_chart if r < len(body_heights)]
+            combined = sum(body_heights[r] for r in valid)
+            equal_h = combined // len(valid)
+            for r in valid:
+                body_heights[r] = equal_h
+            # Distribute rounding remainder to the last row
+            remainder = combined - equal_h * len(valid)
+            if remainder and valid:
+                body_heights[max(valid)] += remainder
 
     def _body_row_required(
         self,
@@ -718,13 +875,13 @@ class RowSizer:
         h = 0
         if spec.has_row_header and not spec.is_grouped:
             # Flat row headers: each row has its own header
-            text = (
-                str(spec.row_headers[body_row])
+            raw_hdr = (
+                spec.row_headers[body_row]
                 if spec.row_headers and body_row < len(spec.row_headers)
                 else ""
             )
-            if text:
-                ps = normalize_cell(text, hdr_def, parse_bullets=False)
+            if raw_hdr:
+                ps = normalize_cell(raw_hdr, hdr_def, parse_bullets=False)
                 h = max(
                     h,
                     cell_content_height(
@@ -746,8 +903,8 @@ class RowSizer:
                 row = spec.cells[body_row]
                 if col_idx < len(row):
                     value = row[col_idx]
-            # Skip empty cells and icon cells — renderer doesn't create text boxes
-            if value == "" or value is None or is_icon_cell(value):
+            # Skip empty cells, icon cells, and chart ref cells
+            if value == "" or value is None or is_icon_cell(value) or isinstance(value, ChartRef):
                 continue
             ps = normalize_cell(value, body_def, parse_bullets=spec.parse_bullets)
             # All-lvl0 cells use line breaks (no spcBef) — matches renderer
@@ -785,13 +942,11 @@ class RowSizer:
 
             # Row header (col 0 when present)
             if spec.has_row_header and not spec.is_grouped:
-                text = (
-                    str(spec.row_headers[ri])
-                    if spec.row_headers and ri < len(spec.row_headers)
-                    else ""
+                raw_hdr = (
+                    spec.row_headers[ri] if spec.row_headers and ri < len(spec.row_headers) else ""
                 )
-                if text:
-                    ps = normalize_cell(text, hdr_def, parse_bullets=False)
+                if raw_hdr:
+                    ps = normalize_cell(raw_hdr, hdr_def, parse_bullets=False)
                     cell_map[0] = cell_content_height(
                         ps,
                         text_widths[0],
@@ -809,7 +964,12 @@ class RowSizer:
                     row = spec.cells[ri]
                     if ci < len(row):
                         value = row[ci]
-                if value == "" or value is None or is_icon_cell(value):
+                if (
+                    value == ""
+                    or value is None
+                    or is_icon_cell(value)
+                    or isinstance(value, ChartRef)
+                ):
                     continue
                 ps = normalize_cell(value, body_def, parse_bullets=spec.parse_bullets)
                 use_lb = should_use_line_breaks(ps)
@@ -850,6 +1010,8 @@ def _cell_text_length(cell_value: Any) -> int:
     dynamic YAML-derived values.
     """
     if cell_value is None:
+        return 0
+    if isinstance(cell_value, ChartRef):
         return 0
     if isinstance(cell_value, str):
         return len(cell_value)

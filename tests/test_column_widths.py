@@ -117,6 +117,62 @@ def test_column_widths_equal_mode() -> None:
     assert max(widths) < min(widths) * 1.5
 
 
+def _chart_col_spec(column_widths: object) -> TableSpec:
+    return TableSpec.from_dict(
+        {
+            "table": {
+                "rows": 2,
+                "cols": 3,
+                "has_col_header": True,
+                "has_row_header": False,
+                "col_headers": [
+                    "A",
+                    "Much Longer Header",
+                    "Comment",
+                ],
+                "cells": [["rev-1", "rev-2", "Text"]],
+                "column_widths": column_widths,
+            },
+            "charts": {
+                "rev": {
+                    "dir": "vertical",
+                    "values": [10, 20],
+                }
+            },
+        }
+    )
+
+
+def test_column_widths_equal_mode_equalizes_vertical_chart_span() -> None:
+    spec = _chart_col_spec("equal")
+
+    widths, _warnings = ColumnSizer().size(
+        spec,
+        area_width=10_000_001,
+        metrics=TextMetrics(),
+        fonts=_fonts(),
+        pad_top=45_720,
+    )
+
+    assert abs(widths[0] - widths[1]) <= 1
+    assert sum(widths) == 10_000_001
+
+
+def test_column_widths_explicit_mode_equalizes_vertical_chart_span() -> None:
+    spec = _chart_col_spec([5.0, 1.0, 1.0])
+
+    widths, _warnings = ColumnSizer().size(
+        spec,
+        area_width=10_000_001,
+        metrics=TextMetrics(),
+        fonts=_fonts(),
+        pad_top=45_720,
+    )
+
+    assert abs(widths[0] - widths[1]) <= 1
+    assert sum(widths) == 10_000_001
+
+
 def test_row_header_two_word_label_min_width_prefers_single_line() -> None:
     spec = TableSpec.from_dict(
         {
