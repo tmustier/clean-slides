@@ -81,15 +81,14 @@ from .cli_inspect import (
     cmd_theme,
     cmd_xml,
 )
-from .cli_project import CONFIG_NAME as _CONFIG_NAME
 from .cli_project import PROJECT_DIR_NAME
-from .cli_project import TEMPLATE_NAME as _TEMPLATE_NAME
 from .cli_project import apply_config as _apply_config
 from .cli_project import discover_project_dir as _discover_project_dir
 from .cli_project import discover_template as _discover_template
 from .cli_project import expand_inputs as _expand_inputs
 from .cli_render import cmd_charts, cmd_crop, cmd_render, cmd_screenshot
 from .cli_spec_commands import cmd_preview, cmd_validate, cmd_verify
+from .cli_template import cmd_init, cmd_init_config
 from .cli_text import text_preview as _text_preview
 from .cli_text import write_to_shape as _write_to_shape
 from .constants import EMU_PER_INCH, Fonts, FontSizes, Layout, TableDefaults
@@ -134,16 +133,6 @@ class _GenerateArgs(_InputArgs, Protocol):
     slide_index: int | None
     keep_existing: bool
     detail: bool
-
-
-class _InitArgs(Protocol):
-    template: str | None
-    output: str | None
-
-
-class _InitConfigArgs(Protocol):
-    file: str
-    output: str | None
 
 
 def _content_area_from_layout(slide_layout: SlideLayout) -> ContentArea | None:
@@ -769,88 +758,6 @@ def cmd_generate(args: _GenerateArgs) -> int:
     output_path = args.output or "output.pptx"
     prs.save(output_path)
     print(f"Saved: {output_path}")
-
-    return 0
-
-
-def _example_template_dir() -> Path:
-    """Return path to the bundled example-template directory."""
-    return Path(__file__).resolve().parent / "example-template"
-
-
-def cmd_init(args: _InitArgs) -> int:
-    """Initialise a .clean-slides/ project directory.
-
-    Without --template: copies the bundled example template and config.
-    With --template <file.pptx>: runs init-config to generate a config,
-    then copies the template + generated config into .clean-slides/.
-    """
-    import shutil
-
-    target = Path(args.output) if args.output else Path.cwd()
-    project_dir = target / PROJECT_DIR_NAME
-
-    if project_dir.exists():
-        print(f"Already initialised: {project_dir}", file=sys.stderr)
-        return 1
-
-    project_dir.mkdir(parents=True)
-
-    if args.template:
-        # Copy the user's template
-        src_tpl = Path(args.template)
-        if not src_tpl.is_file():
-            print(f"Template not found: {src_tpl}", file=sys.stderr)
-            return 1
-        dst_tpl = project_dir / _TEMPLATE_NAME
-        shutil.copy2(src_tpl, dst_tpl)
-
-        # Generate config via init-config
-        dst_cfg = project_dir / _CONFIG_NAME
-
-        class _FakeArgs:
-            file = str(src_tpl)
-            output = str(dst_cfg)
-
-        rc = cmd_init_config(_FakeArgs())  # type: ignore[arg-type]
-        if rc != 0:
-            return rc
-    else:
-        # Copy bundled example
-        example_dir = _example_template_dir()
-        src_tpl = example_dir / "example-template.pptx"
-        src_cfg = example_dir / "example-config.yaml"
-        if not src_tpl.is_file():
-            print(f"Bundled example not found: {src_tpl}", file=sys.stderr)
-            return 1
-        shutil.copy2(src_tpl, project_dir / _TEMPLATE_NAME)
-        shutil.copy2(src_cfg, project_dir / _CONFIG_NAME)
-
-    print(f"Initialised {project_dir}/")
-    print(f"  {_TEMPLATE_NAME}  — slide template")
-    print(f"  {_CONFIG_NAME}    — colours, fonts, layout config")
-    print()
-    print("Generate slides:  pptx generate spec.yaml -o output.pptx")
-    print(f"Edit config:      $EDITOR {project_dir / _CONFIG_NAME}")
-    return 0
-
-
-def cmd_init_config(args: _InitConfigArgs) -> int:
-    """Generate a starter template-config.yaml by introspecting a PPTX template."""
-    from .template_init_config import build_init_config_output
-
-    output = build_init_config_output(args.file)
-
-    if args.output:
-        Path(args.output).write_text(output)
-        print(f"Saved → {args.output}")
-        print("Review the config, especially:")
-        print("  - colors: map your template's theme colors to semantic names")
-        print("  - bullets: inspect slide master lstStyle for accurate margins/chars")
-        print("  - placeholders: verify indices match your template")
-        print("  - font_sizes: adjust to match your template's type scale")
-    else:
-        print(output)
 
     return 0
 
