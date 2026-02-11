@@ -50,10 +50,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Iterable
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Protocol, Union, cast
+from typing import Any, Protocol
 
 from pptx import Presentation
 from pptx.presentation import Presentation as PresentationObj
@@ -61,8 +60,28 @@ from pptx.shapes.autoshape import Shape
 from pptx.shapes.base import BaseShape
 from pptx.slide import Slide, SlideLayout
 from pptx.util import Emu
-from typing_extensions import TypeGuard
 
+from .cli_common import find_layout as _find_layout
+from .cli_common import find_shape as _find_shape
+from .cli_common import get_slide as _get_slide
+from .cli_common import is_str_object_dict as _is_str_object_dict
+from .cli_common import is_text_shape as _is_text_shape
+from .cli_common import open_presentation as _open
+from .cli_common import shape_text as _shape_text
+from .cli_common import try_find_layout as _try_find_layout
+from .cli_inspect import (
+    cmd_chart,
+    cmd_color,
+    cmd_layout,
+    cmd_layouts,
+    cmd_list,
+    cmd_shape,
+    cmd_show,
+    cmd_slide,
+    cmd_summary,
+    cmd_theme,
+    cmd_xml,
+)
 from .cli_text import text_preview as _text_preview
 from .cli_text import write_to_shape as _write_to_shape
 from .constants import EMU_PER_INCH, Fonts, FontSizes, Layout, TableDefaults
@@ -81,46 +100,8 @@ from .text_metrics import EMU_PER_PT, TextMetrics
 # ============================================================================
 
 
-class _ToDict(Protocol):
-    def to_dict(self) -> object: ...
-
-
-def _has_to_dict(obj: object) -> TypeGuard[_ToDict]:
-    return hasattr(obj, "to_dict")
-
-
-def _is_object_list(value: object) -> TypeGuard[list[object]]:
-    return isinstance(value, list)
-
-
-def _is_str_object_dict(value: object) -> TypeGuard[dict[str, object]]:
-    return isinstance(value, dict)
-
-
-def _is_text_shape(shape: BaseShape) -> TypeGuard[Shape]:
-    return isinstance(shape, Shape) and shape.has_text_frame
-
-
 class _FileArgs(Protocol):
     file: str
-
-
-class _ShowArgs(_FileArgs, Protocol):
-    slide: str | None
-    shape: str | None
-
-
-class _SlideArgs(_FileArgs, Protocol):
-    slide: str
-
-
-class _ColorArgs(_FileArgs, Protocol):
-    hex: str
-
-
-class _XmlArgs(_FileArgs, Protocol):
-    slide: str
-    shape: str
 
 
 class _EditArgs(_FileArgs, Protocol):
@@ -271,118 +252,6 @@ def _apply_config(config_path: str | None) -> None:
         set_template_config(discovered)
 
 
-def _open(path: Union[str, Path]) -> PresentationObj:
-    """Open a PPTX file."""
-    return Presentation(str(path))
-
-
-def _get_slide(prs: PresentationObj, num: Union[str, int]) -> Slide:
-    """Get slide by 1-indexed number."""
-    idx = int(num) - 1
-    slides: list[Slide] = list(prs.slides)
-    if idx < 0 or idx >= len(slides):
-        print(f"Error: slide {num} out of range (1-{len(slides)})", file=sys.stderr)
-        sys.exit(1)
-    return slides[idx]
-
-
-def _find_shape(slide: Slide, identifier: str) -> BaseShape:
-    """Find shape by index (int) or name (substring match)."""
-    try:
-        idx = int(identifier)
-        shapes: list[BaseShape] = list(slide.shapes)
-        if 0 <= idx < len(shapes):
-            return shapes[idx]
-        for s in shapes:
-            if s.shape_id == idx:
-                return s
-    except ValueError:
-        pass
-
-    ident_lower = identifier.lower()
-    for s in slide.shapes:
-        if ident_lower in s.name.lower():
-            return s
-
-    print(f"Error: shape '{identifier}' not found", file=sys.stderr)
-    sys.exit(1)
-
-
-def _layout_by_index(prs: PresentationObj, identifier: str) -> SlideLayout | None:
-    try:
-        idx = int(identifier)
-    except ValueError:
-        return None
-
-    layouts: list[SlideLayout] = list(prs.slide_layouts)
-    if 0 <= idx < len(layouts):
-        return layouts[idx]
-    return None
-
-
-def _layout_by_name(prs: PresentationObj, identifier: str) -> SlideLayout | None:
-    ident_lower = identifier.lower()
-    for layout in prs.slide_layouts:
-        if ident_lower in layout.name.lower():
-            return layout
-    return None
-
-
-def _fallback_layout(layouts: list[SlideLayout]) -> SlideLayout:
-    # Prefer a sensible, content-friendly layout.
-    # NOTE: templates vary widely; avoid hardcoding indices.
-    for key in ("default", "blank"):
-        exact = next((layout for layout in layouts if layout.name.lower() == key), None)
-        if exact is not None:
-            return exact
-
-    for key in ("default", "blank"):
-        partial = next((layout for layout in layouts if key in layout.name.lower()), None)
-        if partial is not None:
-            return partial
-
-    return layouts[0]
-
-
-def _find_layout(prs: PresentationObj, identifier: str, fallback: bool = False) -> SlideLayout:
-    """Find layout by index (int) or name (substring match).
-
-    If fallback=True, returns a best-effort layout instead of exiting.
-    """
-    by_index = _layout_by_index(prs, identifier)
-    if by_index is not None:
-        return by_index
-
-    by_name = _layout_by_name(prs, identifier)
-    if by_name is not None:
-        return by_name
-
-    if fallback:
-        return _fallback_layout(list(prs.slide_layouts))
-
-    print(f"Error: layout '{identifier}' not found", file=sys.stderr)
-    sys.exit(1)
-
-
-def _try_find_layout(prs: PresentationObj, name: str) -> SlideLayout | None:
-    """Best-effort lookup by layout name (case-insensitive).
-
-    Returns None if no match.
-    """
-    name_lower = name.lower()
-    layouts: list[SlideLayout] = list(prs.slide_layouts)
-
-    for layout in layouts:
-        if layout.name and layout.name.lower() == name_lower:
-            return layout
-
-    for layout in layouts:
-        if layout.name and name_lower in layout.name.lower():
-            return layout
-
-    return None
-
-
 def _content_area_from_layout(slide_layout: SlideLayout) -> ContentArea | None:
     """Extract the primary content area from a slide layout.
 
@@ -456,34 +325,6 @@ def _sidebar_content_area(slide_layout: SlideLayout) -> ContentArea | None:
     candidates.sort()
     x, y, w = candidates[1]
     return ContentArea(x=x, y=y, width=w, height=int(footer_y - y))
-
-
-def _json_out(obj: object) -> None:
-    """Serialize to JSON, handling dataclass .to_dict()."""
-
-    payload: object
-
-    if _has_to_dict(obj):
-        payload = obj.to_dict()
-    elif _is_object_list(obj):
-        items: list[object] = []
-        for x_obj in obj:
-            if _has_to_dict(x_obj):
-                items.append(x_obj.to_dict())
-            else:
-                items.append(x_obj)
-        payload = items
-    else:
-        payload = obj
-
-    print(json.dumps(payload, indent=2, ensure_ascii=False, default=str))
-
-
-def _shape_text(shape: BaseShape) -> str | None:
-    """Current text from a shape."""
-    if not _is_text_shape(shape):
-        return None
-    return shape.text_frame.text.replace("\x0b", "\\n").replace("\n", "\\n")
 
 
 # ============================================================================
@@ -626,309 +467,6 @@ def _warn_placeholder_text_limits(slide: Slide, shape: Shape) -> None:
             "Consider shortening.",
             file=sys.stderr,
         )
-
-
-# ============================================================================
-# INSPECT COMMANDS
-# ============================================================================
-
-
-def _classify_shape_type(shape: BaseShape) -> str:
-    """Classify shape for display: placeholder, chart, image, table, group, text, connector, decorative."""
-    from pptx.enum.shapes import MSO_SHAPE_TYPE
-
-    if shape.is_placeholder:
-        return "placeholder"
-
-    st = shape.shape_type
-    if st == MSO_SHAPE_TYPE.CHART:
-        return "chart"
-    if st == MSO_SHAPE_TYPE.PICTURE:
-        return "image"
-    if st == MSO_SHAPE_TYPE.TABLE:
-        return "table"
-    if st == MSO_SHAPE_TYPE.GROUP:
-        return "group"
-    if st in (MSO_SHAPE_TYPE.LINE, MSO_SHAPE_TYPE.FREEFORM):
-        return "line"
-    if _is_text_shape(shape) and shape.text_frame.text.strip():
-        return "text"
-    return "shape"
-
-
-def _shape_word_count(shape: BaseShape) -> int:
-    """Count words in a shape's text frame."""
-    if not _is_text_shape(shape):
-        return 0
-    text = shape.text_frame.text.strip()
-    return len(text.split()) if text else 0
-
-
-def _slide_word_count(slide: Slide) -> int:
-    """Total words across all text-bearing shapes on a slide."""
-    total = 0
-    for shape in slide.shapes:
-        total += _shape_word_count(shape)
-    return total
-
-
-def _show_file_summary(prs: PresentationObj, file_path: str) -> None:
-    from .inspect_pptx import get_slide_comments, list_slides
-
-    total = len(prs.slides)
-    print(f"\n  {file_path}  ({total} slide{'s' if total != 1 else ''})\n")
-    for entry in list_slides(prs):
-        slide = prs.slides[entry["slide"] - 1]
-        layout_name = slide.slide_layout.name
-        shapes_n = len(slide.shapes)
-        words = _slide_word_count(slide)
-        title = entry["title"][:60] or "(no title)"
-        comments = get_slide_comments(slide)
-        cm_str = f"  {len(comments)}cm" if comments else ""
-        print(f"  {entry['slide']:3d}  {title:62s}  [{layout_name}]  {shapes_n}sh  {words}w{cm_str}")
-    print()
-
-
-def _show_slide_header(slide: Slide, slide_label: str) -> None:
-    title = "(no title)"
-    subtitle = ""
-
-    title_shape = slide.shapes.title
-    if title_shape is not None:
-        title = title_shape.text.replace("\x0b", " | ").replace("\n", " | ")
-
-    for shape in slide.shapes:
-        if _is_text_shape(shape) and shape.is_placeholder and shape.placeholder_format.idx == 1:
-            subtitle = shape.text.replace("\x0b", " | ").replace("\n", " | ")
-            break
-
-    layout = slide.slide_layout
-    layout_phs = [f"ph{ph.placeholder_format.idx}:{ph.name}" for ph in layout.placeholders]
-
-    print(f"\n  Slide {slide_label}: {title}")
-    if subtitle:
-        print(f"  {subtitle}")
-    print(f"  Layout: \"{layout.name}\" → {', '.join(layout_phs) if layout_phs else '(no placeholders)'}")
-    print()
-
-
-def _show_slide_shapes(slide: Slide) -> None:
-    from .inspect_pptx import inspect_slide
-
-    shapes = inspect_slide(slide)
-    for item in shapes:
-        real_shape = list(slide.shapes)[item.index]
-        cat = _classify_shape_type(real_shape)
-
-        ph_str = f"ph{item.placeholder_idx}" if item.placeholder_idx is not None else ""
-        type_str = ph_str if ph_str else cat
-
-        text = ""
-        if item.text_preview:
-            preview = item.text_preview[:60]
-            if len(item.text_preview) > 60:
-                preview += "…"
-            text = f"  «{preview}»"
-
-        print(
-            f"  [{item.index:2d}] {type_str:8s}  {item.left:5.2f},{item.top:5.2f}  {item.width:5.2f}x{item.height:5.2f}  {item.name:30s}{text}"
-        )
-
-
-def _show_slide_comments(slide: Slide) -> None:
-    from .inspect_pptx import get_slide_comments
-
-    comments = get_slide_comments(slide)
-    if not comments:
-        return
-
-    print(f"\n  Comments ({len(comments)}):")
-    for comment in comments:
-        preview = comment.text[:120]
-        if len(comment.text) > 120:
-            preview += "…"
-        print(f"    [{comment.author}] {preview}")
-
-
-def _show_shape_detail_json(slide: Slide, shape_identifier: str) -> None:
-    from .inspect_pptx import inspect_chart, inspect_shape
-
-    shape = _find_shape(slide, shape_identifier)
-    if shape.has_chart if hasattr(shape, "has_chart") else False:
-        _json_out(inspect_chart(shape))
-    else:
-        _json_out(inspect_shape(shape))
-
-
-def cmd_show(args: _ShowArgs) -> int:
-    """Progressive drill-down: file → slide list, slide → shapes, shape → detail."""
-    prs = _open(args.file)
-
-    if args.slide is None:
-        _show_file_summary(prs, args.file)
-        return 0
-
-    slide = _get_slide(prs, args.slide)
-    if args.shape is None:
-        _show_slide_header(slide, args.slide)
-        _show_slide_shapes(slide)
-        _show_slide_comments(slide)
-        print()
-        return 0
-
-    _show_shape_detail_json(slide, args.shape)
-    return 0
-
-
-def cmd_list(args: _FileArgs) -> int:
-    from .inspect_pptx import list_slides
-
-    prs = _open(args.file)
-    for entry in list_slides(prs):
-        print(f"  {entry['slide']:3d}  {entry['title']}")
-    return 0
-
-
-def cmd_summary(args: _SlideArgs) -> int:
-    from .inspect_pptx import summarize_slide
-
-    prs = _open(args.file)
-    slide = _get_slide(prs, args.slide)
-    _json_out(summarize_slide(slide))
-    return 0
-
-
-def cmd_slide(args: _SlideArgs) -> int:
-    from .inspect_pptx import inspect_slide
-
-    prs = _open(args.file)
-    slide = _get_slide(prs, args.slide)
-    shapes = inspect_slide(slide)
-    for s in shapes:
-        ph = f" ph={s.placeholder_idx}" if s.placeholder_idx is not None else ""
-        fill = f" fill={s.fill.type}" if s.fill.type != "inherited" else ""
-        text = f"  «{s.text_preview}»" if s.text_preview else ""
-        print(
-            f"  [{s.index:2d}] {s.name:30s}  {s.left:6.2f},{s.top:6.2f}  {s.width:5.2f}x{s.height:5.2f}{ph}{fill}{text}"
-        )
-    return 0
-
-
-def cmd_shape(args: _XmlArgs) -> int:
-    from .inspect_pptx import inspect_shape
-
-    prs = _open(args.file)
-    slide = _get_slide(prs, args.slide)
-    shape = _find_shape(slide, args.shape)
-    _json_out(inspect_shape(shape))
-    return 0
-
-
-def cmd_chart(args: _XmlArgs) -> int:
-    from .inspect_pptx import inspect_chart
-
-    prs = _open(args.file)
-    slide = _get_slide(prs, args.slide)
-    shape = _find_shape(slide, args.shape)
-    _json_out(inspect_chart(shape))
-    return 0
-
-
-def cmd_layout(args: _SlideArgs) -> int:
-    from .inspect_pptx import inspect_layout
-
-    prs = _open(args.file)
-    slide = _get_slide(prs, args.slide)
-    _json_out(inspect_layout(slide.slide_layout))
-    return 0
-
-
-def cmd_layouts(args: _FileArgs) -> int:
-    from pptx.enum.shapes import PP_PLACEHOLDER
-    from pptx.shapes.placeholder import LayoutPlaceholder
-
-    prs = _open(args.file)
-
-    # Boundary between "structural" placeholders (title, subtitle, tracker) and
-    # the slide's main content zone.
-    content_y_threshold = int(Layout.CONTENT_START_Y)
-    footer_y = int(Layout.FOOTER_LINE_Y)
-
-    for layout in prs.slide_layouts:
-        structural: list[str] = []
-        # (left_emu, width_in, height_avail_in, name)
-        content_phs: list[tuple[int, float, float, str]] = []
-
-        placeholders = cast(Iterable[LayoutPlaceholder], layout.placeholders)
-        phs: list[LayoutPlaceholder] = sorted(
-            placeholders,
-            key=lambda p: (int(p.top), int(p.left)),
-        )
-        for ph in phs:
-            pf = ph.placeholder_format
-            w_in = ph.width.inches
-
-            if pf.type == PP_PLACEHOLDER.TITLE:
-                structural.append(f"title ({w_in:.1f}in)")
-            elif pf.type == PP_PLACEHOLDER.SUBTITLE:
-                structural.append(f"subtitle ({w_in:.1f}in)")
-            elif pf.type == PP_PLACEHOLDER.PICTURE:
-                structural.append(f"image: {ph.name} ({w_in:.1f}×{ph.height.inches:.1f}in)")
-            elif int(ph.top) < content_y_threshold:
-                # Above content zone — tracker, doc type, etc.
-                structural.append(f"{ph.name} ({w_in:.1f}in)")
-            else:
-                h_avail = Emu(footer_y - int(ph.top)).inches
-                content_phs.append((int(ph.left), w_in, h_avail, ph.name))
-
-        # Sort content areas left-to-right, label primary/secondary
-        content_phs.sort(key=lambda p: p[0])
-        areas: list[str] = []
-        for idx, (_x, w, h, _name) in enumerate(content_phs):
-            label = "primary" if idx == 0 else "secondary"
-            areas.append(f"{label} {w:.1f}×{h:.1f}in")
-
-        print(f"  {layout.name}")
-        if structural:
-            print(f"    placeholders: {', '.join(structural)}")
-        if areas:
-            print(f"    content areas: {', '.join(areas)}")
-        else:
-            print("    content areas: (none)")
-    return 0
-
-
-def cmd_theme(args: _FileArgs) -> int:
-    from .inspect_pptx import resolve_theme_colors
-
-    prs = _open(args.file)
-    colors = resolve_theme_colors(prs)
-    for name, hex_val in sorted(colors.items()):
-        if not name.startswith("_"):
-            print(f"  {name:12s}  {hex_val}")
-    return 0
-
-
-def cmd_color(args: _ColorArgs) -> int:
-    from .inspect_pptx import identify_color
-
-    prs = _open(args.file)
-    result = identify_color(prs, args.hex)
-    if result:
-        print(result)
-    else:
-        print(f"No theme match for {args.hex}")
-    return 0
-
-
-def cmd_xml(args: _XmlArgs) -> int:
-    from .xml_helpers import dump_xml
-
-    prs = _open(args.file)
-    slide = _get_slide(prs, args.slide)
-    shape = _find_shape(slide, args.shape)
-    print(dump_xml(shape._element))
-    return 0
 
 
 # ============================================================================
