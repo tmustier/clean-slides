@@ -131,3 +131,19 @@ class TestFillPlaceholdersGrouped:
         filled = fill_placeholders(spec)
         assert filled.cells is not None
         assert len(filled.cells) == 3  # total sub-rows
+
+    def test_preserves_blank_first_cell_for_promoted_group(self) -> None:
+        groups = [
+            RowGroup(header="Start", num_rows=1, promoted=True),
+            RowGroup(header="Drivers", num_rows=1),
+        ]
+        spec = _grouped_spec(groups, num_cols=2)
+        assert spec.cells is not None
+        spec.cells[0][0] = ""
+        spec.cells[0][1] = "wf-1"
+        spec.cells[1][0] = "CPI"
+        spec.cells[1][1] = "wf-2"
+
+        filled = fill_placeholders(spec)
+        assert filled.cells is not None
+        assert filled.cells[0][0] == ""

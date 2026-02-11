@@ -6,7 +6,7 @@ Small visual markers placed in table cells instead of text. Used to convey categ
 
 ## Principles
 
-1. **One shape per icon** — simple filled oval (`prstGeom prst="ellipse"`), no outlines, no groups. The think-cell MoonLegend5 approach (group of ellipse + arc) is unnecessary when the indicator is always fully filled.
+1. **One shape per icon** — simple filled oval (`prstGeom prst="ellipse"`), no outlines, no groups. The grouped moon-style approach (ellipse + arc) is unnecessary when the indicator is always fully filled.
 2. **Centered in cell** — positioned at `(cell_x + cell_w/2 - r, cell_y + cell_h/2 - r)` where `r = size/2`.
 3. **Fixed size** — `0.25"` (228,600 EMU) diameter by default. Small enough to fit in compact columns, large enough to read.
 4. **Colors from the design system** — uses the semantic palette defined in `DESIGN-SYSTEM.md §2.3`. Supports both `srgbClr` hex (`"#E5546C"`) and `schemeClr` names (`"accent5"`).
@@ -274,7 +274,7 @@ table:
 ## Design Rationale
 
 **Why simple ovals, not moons?**
-The reference file uses think-cell's MoonLegend5 (a group shape: ellipse background + arc overlay). This supports partial fills (25%, 50%, 75%). But in practice, the indicators are always fully filled — the arc sweep covers 100%. A single filled ellipse is visually identical, produces cleaner XML, and doesn't depend on think-cell. If partial fills are ever needed, the moon approach can be added as a separate icon type.
+Some source decks use a grouped moon-style shape (ellipse background + arc overlay). This supports partial fills (25%, 50%, 75%). But in practice, the indicators are always fully filled — the arc sweep covers 100%. A single filled ellipse is visually identical, produces cleaner XML, and avoids any add-in-specific constructs. If partial fills are ever needed, the moon approach can be added as a separate icon type.
 
 **Why warm tones for severity?**
 Severity measures negative impact magnitude. The warm palette (red → salmon → tan → grey) maps intuitively: redder = worse. This avoids the ambiguity of green in a negative-only scale (green risk? green severity?). Grey/slate for "Low" signals minimal concern without implying positive.

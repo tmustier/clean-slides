@@ -1,8 +1,8 @@
 """
 Chart cell renderer — embeds native chart shapes inside table cells.
 
-Delegates to the external chart generator module (loaded via charts.py) for
-all chart creation and styling.  This module handles only the table-specific
+Delegates to the bundled chart engine module (loaded via charts.py) for
+all chart creation and styling. This module handles only the table-specific
 logic: grouping adjacent ChartRef cells, computing bounding boxes from the
 table layout, and translating ChartDef into the JSON spec the generator expects.
 """
@@ -14,12 +14,12 @@ table layout, and translating ChartDef into the JSON spec the generator expects.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from types import ModuleType
 from typing import Any, cast
 
 from pptx.slide import Slide
-from pptx.util import Emu
+from pptx.util import Emu, Pt
 
+from .charts import ChartEngine
 from .spec import Box, ChartDef, ChartRef, ContentArea, TableLayout, TableSpec
 
 # ---------------------------------------------------------------------------
@@ -233,7 +233,10 @@ def _waterfall_chart_spec(group: ChartGroup, label_font_size: int = 8) -> dict[s
     """Build a JSON spec dict for build_waterfall_payload."""
     chart_def = group.chart_def
     values = _sorted_values(group)
-    categories = [str(i + 1) for i in range(len(values))]
+
+    # Keep category labels visually empty in the chart itself.
+    # We still need one category per value for geometry/stacking.
+    categories = ["" for _ in values]
 
     series_entry: dict[str, Any] = {
         "name": "Values",
@@ -242,15 +245,14 @@ def _waterfall_chart_spec(group: ChartGroup, label_font_size: int = 8) -> dict[s
     if chart_def.color:
         series_entry["color"] = chart_def.color
 
-    # Totals: convert 1-based indices to 0-based category names
-    total_categories: list[str] = []
+    # Totals/decreases are 1-based in YAML; convert to 0-based indices.
+    total_categories: list[int] = []
     if chart_def.totals:
-        total_categories = [str(i) for i in chart_def.totals]
+        total_categories = [max(i - 1, 0) for i in chart_def.totals]
 
-    # Decreases: convert 1-based indices to 0-based category names
-    decrease_categories: list[str] = []
+    decrease_categories: list[int] = []
     if chart_def.decreases:
-        decrease_categories = [str(i) for i in chart_def.decreases]
+        decrease_categories = [max(i - 1, 0) for i in chart_def.decreases]
 
     # Data label format
     fmt = chart_def.format
@@ -268,6 +270,7 @@ def _waterfall_chart_spec(group: ChartGroup, label_font_size: int = 8) -> dict[s
         "overlap": 100,
         "plot_layout": {},  # computed dynamically in render_chart_cells
         "axis_line_color": "none",  # hide category axis line in cells
+        "total_override": True,  # honor explicit total values from YAML
     }
 
     if chart_def.total_color:
@@ -277,6 +280,10 @@ def _waterfall_chart_spec(group: ChartGroup, label_font_size: int = 8) -> dict[s
         wf_config["connector_style"] = "none"
     else:
         wf_config["connector_style"] = "gap"
+        # In table cells, nudge connectors half a stroke inside the bar tip
+        # for cleaner visual alignment across renderers.
+        wf_config["connector_inset"] = Emu(3000)
+        wf_config["connector_overlap"] = 0
 
     if excel_fmt:
         wf_config["data_label_format"] = excel_fmt
@@ -337,6 +344,118 @@ def _python_fmt_to_excel_format(fmt: str, values: list[float]) -> str:
         result += f'"{suffix}"'
 
     return result
+
+
+def _format_chart_label_value(value: float | None, fmt: str) -> str | None:
+    """Format a chart value using the user-provided Python format string."""
+    if value is None:
+        return None
+
+    try:
+        if fmt == "{}":
+            rounded = round(value)
+            if abs(value - rounded) < 1e-9:
+                return str(int(rounded))
+            return str(value)
+        return str(fmt.format(value))
+    except (ValueError, IndexError, KeyError):
+        rounded = round(value)
+        if abs(value - rounded) < 1e-9:
+            return str(int(rounded))
+        return str(value)
+
+
+def _waterfall_overlay_label_texts(meta: dict[str, Any], fmt: str) -> list[str]:
+    """Compute overlay label texts for a waterfall chart.
+
+    Mirrors the generator's label-value selection logic but applies the
+    clean-slides format string (e.g. ``{:,.0f}``) so labels can include
+    thousands separators and custom affixes.
+    """
+    overlay_obj = meta.get("overlay")
+    if not isinstance(overlay_obj, dict):
+        return []
+
+    categories_obj = overlay_obj.get("categories")
+    cumulative_obj = overlay_obj.get("cumulative_totals")
+    delta_obj = overlay_obj.get("delta_values")
+    total_categories_obj = overlay_obj.get("total_categories")
+
+    if not isinstance(categories_obj, list) or not isinstance(cumulative_obj, list):
+        return []
+
+    categories_count = len(cast(list[Any], categories_obj))
+    cumulative_totals: list[float | None] = [
+        float(v) if isinstance(v, (int, float)) else None for v in cumulative_obj
+    ]
+    delta_values: list[float | None] = []
+    if isinstance(delta_obj, list):
+        delta_values = [float(v) if isinstance(v, (int, float)) else None for v in delta_obj]
+
+    total_categories: set[int] = set()
+    if isinstance(total_categories_obj, (list, set, tuple)):
+        for item in total_categories_obj:
+            if isinstance(item, int):
+                total_categories.add(item)
+
+    texts: list[str] = []
+    for idx in range(categories_count):
+        total_value = cumulative_totals[idx] if idx < len(cumulative_totals) else None
+        if total_value is None:
+            continue
+
+        if idx == 0 or idx in total_categories:
+            label_value = total_value
+        else:
+            label_value = delta_values[idx] if idx < len(delta_values) else None
+
+        label_text = _format_chart_label_value(label_value, fmt)
+        if label_text is not None:
+            texts.append(label_text)
+
+    return texts
+
+
+def _hide_waterfall_overlay_category_labels(meta: dict[str, Any]) -> None:
+    """Suppress category labels rendered by add_waterfall_overlays()."""
+    overlay_obj = meta.get("overlay")
+    if not isinstance(overlay_obj, dict):
+        return
+    categories_obj = overlay_obj.get("categories")
+    if not isinstance(categories_obj, list):
+        return
+    overlay_obj["categories"] = ["" for _ in categories_obj]
+
+
+def _rewrite_overlay_value_label_texts(
+    slide: Slide,
+    start_shape_index: int,
+    label_texts: list[str],
+    font_size_pt: int,
+) -> None:
+    """Rewrite newly added overlay text shapes with formatted label text."""
+    if not label_texts:
+        return
+
+    label_idx = 0
+    total_shapes = len(slide.shapes)
+    for shape_idx in range(start_shape_index, total_shapes):
+        if label_idx >= len(label_texts):
+            break
+        shape = slide.shapes[shape_idx]
+        if not bool(getattr(shape, "has_text_frame", False)):
+            continue
+
+        text_frame = cast(Any, shape).text_frame
+        existing = str(getattr(text_frame, "text", "")).strip()
+        if not existing:
+            continue
+
+        text_frame.text = label_texts[label_idx]
+        paragraphs = cast(list[Any], text_frame.paragraphs)
+        if paragraphs:
+            paragraphs[0].font.size = Pt(font_size_pt)
+        label_idx += 1
 
 
 def _set_label_nowrap(chart: Any) -> None:
@@ -525,6 +644,27 @@ def _delete_auto_title(chart: Any) -> None:
         auto_title.set("val", "1")
 
 
+def _apply_point_colors(
+    chart: Any,
+    charts_module: ChartEngine,
+    point_colors: list[str | None],
+    series_idx: int,
+) -> None:
+    """Apply optional per-point fill colors to one chart series."""
+    if not point_colors:
+        return
+
+    series = chart.series[series_idx]
+    for point_idx, color in enumerate(point_colors):
+        if not color:
+            continue
+        point = series.points[point_idx]
+        point.format.fill.solid()
+        applied = bool(charts_module.apply_color(point.format.fill.fore_color, color))
+        if applied:
+            point.format.line.fill.background()
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -535,14 +675,13 @@ def render_chart_cells(
     spec: TableSpec,
     layout: TableLayout,
     area: ContentArea,
-    charts_module: ModuleType,
+    charts_module: ChartEngine,
     label_font_size_pt: int = 8,
 ) -> None:
     """Render all chart cell groups as native chart shapes on the slide.
 
-    Uses the external chart generator module (loaded via charts.py) for
-    chart creation and styling.  The caller is responsible for resolving
-    and loading the module.
+    Uses the bundled chart engine module (loaded via charts.py) for
+    chart creation and styling.
     """
     if not spec.chart_defs or not spec.cells:
         return
@@ -592,7 +731,7 @@ def render_chart_cells(
 def _render_bar_group(
     slide: Slide,
     group: ChartGroup,
-    charts_module: ModuleType,
+    charts_module: ChartEngine,
     x: int,
     y: int,
     w: int,
@@ -626,20 +765,30 @@ def _render_bar_group(
 
     charts_module.apply_series_colors(chart, style.get("series_colors", []))
 
+    if group.chart_def.colors:
+        _apply_point_colors(chart, charts_module, group.chart_def.colors, series_idx=0)
+
     if style.get("bar"):
         charts_module.apply_bar_chart_style(chart, style["bar"])
 
     if chart_spec.get("show_data_labels", False):
-        data_cfg = chart_spec.get("data_labels") or {}
+        data_cfg_obj = chart_spec.get("data_labels")
+        data_cfg: dict[str, Any] = data_cfg_obj if isinstance(data_cfg_obj, dict) else {}
         plot = chart.plots[0]
         plot.has_data_labels = True
         charts_module.apply_data_label_style(plot.data_labels, data_cfg)
         _set_label_nowrap(chart)
 
         if group.chart_def.dir == "horizontal":
-            axis_max = chart_spec["bar"].get("axis_max", max(group.chart_def.values))
-            dl_cfg: dict[str, object] = chart_spec.get("data_labels") or {}
-            excel_fmt = str(dl_cfg.get("format", "General"))
+            bar_obj = chart_spec.get("bar")
+            bar_cfg: dict[str, Any] = bar_obj if isinstance(bar_obj, dict) else {}
+            axis_max_obj = bar_cfg.get("axis_max")
+            axis_max = (
+                float(axis_max_obj)
+                if isinstance(axis_max_obj, (int, float))
+                else max(group.chart_def.values)
+            )
+            excel_fmt = str(data_cfg.get("format", "General"))
             _set_horizontal_label_offsets(
                 chart,
                 group.chart_def.values,
@@ -655,7 +804,7 @@ def _render_bar_group(
 def _render_waterfall_group(
     slide: Slide,
     group: ChartGroup,
-    charts_module: ModuleType,
+    charts_module: ChartEngine,
     x: int,
     y: int,
     w: int,
@@ -693,21 +842,48 @@ def _render_waterfall_group(
     charts_module.apply_series_colors(chart, style.get("series_colors", []))
 
     # Apply waterfall-specific styling (offset no-fill, total point colors)
-    wf_meta = style.get("waterfall", {})
+    wf_meta_obj = style.get("waterfall", {})
+    wf_meta: dict[str, Any] = wf_meta_obj if isinstance(wf_meta_obj, dict) else {}
     if wf_meta:
         charts_module.apply_waterfall_style(chart, wf_meta)
         charts_module.apply_waterfall_chart_style(chart, wf_meta)
+
+    if group.chart_def.colors:
+        offset_idx_obj = wf_meta.get("offset_series_idx")
+        offset_idx = offset_idx_obj if isinstance(offset_idx_obj, int) else 0
+        series_count = len(cast(list[Any], chart.series))
+        target_idx: int | None = None
+        for idx in range(series_count):
+            if idx != offset_idx:
+                target_idx = idx
+                break
+        if target_idx is not None:
+            _apply_point_colors(chart, charts_module, group.chart_def.colors, series_idx=target_idx)
 
     # Add connector lines and overlay labels as separate shapes on the slide.
     # This handles both incremental and total bar labels, plus connectors.
     # We do NOT use built-in chart data labels — overlays give full control.
     if chart_spec.get("show_data_labels", False) and wf_meta:
+        # Cell tables already provide row labels, so hide overlay category labels.
+        _hide_waterfall_overlay_category_labels(wf_meta)
+
+        # Pre-compute desired label texts (supports format strings like {:,.0f}).
+        label_texts = _waterfall_overlay_label_texts(wf_meta, group.chart_def.format)
+
         prs_part = cast(Any, slide.part.package).presentation_part
         prs_obj = prs_part.presentation
         slide_size: tuple[int, int] = (int(prs_obj.slide_width), int(prs_obj.slide_height))
+
+        before_shape_count = len(slide.shapes)
         charts_module.add_waterfall_overlays(
             slide,
             (x, y, w, h),
             wf_meta,
             slide_size=slide_size,
+        )
+        _rewrite_overlay_value_label_texts(
+            slide,
+            before_shape_count,
+            label_texts,
+            label_font_size_pt,
         )

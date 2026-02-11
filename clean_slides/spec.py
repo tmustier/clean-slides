@@ -44,6 +44,7 @@ class ChartDef:
     values: list[float]
     format: str = "{}"
     color: str | None = None  # theme name or hex; None = template default
+    colors: list[str | None] | None = None  # per-point colors (optional)
     label_position: str | None = None  # "above", "right", "on", "none"
     scale_max: float | None = None  # override automatic axis maximum
     scale_min: float | None = None  # override automatic axis minimum
@@ -80,6 +81,23 @@ class ChartDef:
         fmt = str(data.get("format", "{}"))
         color_raw = data.get("color")
         color = str(color_raw) if color_raw is not None else None
+
+        colors_raw: object = data.get("colors")
+        colors: list[str | None] | None = None
+        if colors_raw is not None:
+            if not _is_list(colors_raw):
+                raise ValueError(f"Chart '{name}': colors must be a list when provided")
+            colors = []
+            for item in colors_raw:
+                if item is None:
+                    colors.append(None)
+                else:
+                    colors.append(str(item))
+            if len(colors) != len(values):
+                raise ValueError(
+                    f"Chart '{name}': colors must have {len(values)} entries to match values"
+                )
+
         label_pos_raw = data.get("label_position")
         label_position = str(label_pos_raw) if label_pos_raw is not None else None
         scale_max_raw = data.get("scale_max")
@@ -112,6 +130,7 @@ class ChartDef:
             values=values,
             format=fmt,
             color=color,
+            colors=colors,
             label_position=label_position,
             scale_max=scale_max,
             scale_min=scale_min,
@@ -395,8 +414,9 @@ class RowGroup:
     ("Co-locate..." and "Operate & maintain...").
     """
 
-    header: str
+    header: Any
     num_rows: int  # how many sub-rows in this group
+    promoted: bool = False  # header auto-promoted from first body cell
 
 
 # ---------------------------------------------------------------------------
@@ -602,7 +622,51 @@ class TableSpec:
                     else:
                         group_rows.append([row])
 
-            groups.append(RowGroup(header=str(header_raw), num_rows=len(group_rows)))
+            def normalize_group_header(value: object) -> object:
+                if _is_dict(value):
+                    d = _stringify_keys(value)
+                    if "text" in d or "sub" in d:
+                        text = str(d.get("text", ""))
+                        sub_raw: object = d.get("sub")
+                        sub = str(sub_raw) if sub_raw is not None else None
+                        return {"text": text, "sub": sub}
+                if isinstance(value, str):
+                    if "\n" in value:
+                        first, rest = value.split("\n", 1)
+                        sub = rest.strip()
+                        # Heuristic: treat parenthesized continuation as subtitle.
+                        if sub.startswith("("):
+                            return {"text": first, "sub": sub}
+                    return value
+                return str(value)
+
+            header_value = normalize_group_header(header_raw)
+            header_text = ""
+            if isinstance(header_value, str):
+                header_text = header_value
+            elif _is_dict(header_value):
+                header_text = str(header_value.get("text", ""))
+
+            promoted = False
+            # Convenience: singleton groups with an empty header and chart refs
+            # promote the first body cell into the group header. This avoids
+            # blank row-header sections for start/total rows in waterfall tables.
+            if not header_text.strip() and len(group_rows) == 1 and group_rows[0]:
+                first_cell = group_rows[0][0]
+                has_chart_ref = any(parse_chart_ref(cell) is not None for cell in group_rows[0])
+                if (
+                    has_chart_ref
+                    and isinstance(first_cell, str)
+                    and first_cell.strip()
+                    and parse_chart_ref(first_cell) is None
+                ):
+                    header_value = normalize_group_header(first_cell)
+                    group_rows[0][0] = ""
+                    promoted = True
+
+            groups.append(
+                RowGroup(header=header_value, num_rows=len(group_rows), promoted=promoted)
+            )
             all_rows.extend(group_rows)
 
         # groups imply a row-header (superheader) column

@@ -79,7 +79,7 @@ The `example-template.pptx` was derived from a corporate template by:
 - Replacing proprietary artwork with solid theme-colored rectangles
 - Applying a "Warm Editorial" color palette (terracotta, teal, indigo, warm neutrals)
 - Setting Rockwell (headings) + Trebuchet MS (body) as theme fonts
-- Removing embedded objects, think-cell shapes, and client-specific elements
+- Removing embedded objects, third-party add-in shapes, and client-specific elements
 
 The build script is in `../../sandbox/build-example-template.py` if you want to see the transformation.
 
