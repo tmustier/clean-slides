@@ -71,8 +71,8 @@ from .placeholder import fill_placeholders
 from .renderer import TableRenderer
 from .screenshot import ScreenshotGenerator, crop_region
 from .solver import ConstraintSolver
-from .spec import ContentArea
-from .spec_pipeline import load_yaml, parse_spec, preview_spec, validate_spec
+from .spec import ContentArea, TableLayout, TableSpec
+from .spec_pipeline import YamlDict, load_yaml, parse_spec, preview_spec, validate_spec
 from .template_config import TEMPLATE_CONFIG, set_template_config
 from .text_metrics import EMU_PER_PT, TextMetrics
 
@@ -308,39 +308,57 @@ def _find_shape(slide: Slide, identifier: str) -> BaseShape:
     sys.exit(1)
 
 
+def _layout_by_index(prs: PresentationObj, identifier: str) -> SlideLayout | None:
+    try:
+        idx = int(identifier)
+    except ValueError:
+        return None
+
+    layouts: list[SlideLayout] = list(prs.slide_layouts)
+    if 0 <= idx < len(layouts):
+        return layouts[idx]
+    return None
+
+
+def _layout_by_name(prs: PresentationObj, identifier: str) -> SlideLayout | None:
+    ident_lower = identifier.lower()
+    for layout in prs.slide_layouts:
+        if ident_lower in layout.name.lower():
+            return layout
+    return None
+
+
+def _fallback_layout(layouts: list[SlideLayout]) -> SlideLayout:
+    # Prefer a sensible, content-friendly layout.
+    # NOTE: templates vary widely; avoid hardcoding indices.
+    for key in ("default", "blank"):
+        exact = next((layout for layout in layouts if layout.name.lower() == key), None)
+        if exact is not None:
+            return exact
+
+    for key in ("default", "blank"):
+        partial = next((layout for layout in layouts if key in layout.name.lower()), None)
+        if partial is not None:
+            return partial
+
+    return layouts[0]
+
+
 def _find_layout(prs: PresentationObj, identifier: str, fallback: bool = False) -> SlideLayout:
     """Find layout by index (int) or name (substring match).
 
     If fallback=True, returns a best-effort layout instead of exiting.
     """
-    try:
-        idx = int(identifier)
-        layouts: list[SlideLayout] = list(prs.slide_layouts)
-        if 0 <= idx < len(layouts):
-            return layouts[idx]
-    except ValueError:
-        pass
+    by_index = _layout_by_index(prs, identifier)
+    if by_index is not None:
+        return by_index
 
-    ident_lower = identifier.lower()
-    for layout in prs.slide_layouts:
-        if ident_lower in layout.name.lower():
-            return layout
+    by_name = _layout_by_name(prs, identifier)
+    if by_name is not None:
+        return by_name
 
     if fallback:
-        layouts = list(prs.slide_layouts)
-
-        # Prefer a sensible, content-friendly layout.
-        # NOTE: templates vary widely; avoid hardcoding indices.
-        for key in ("default", "blank"):
-            for layout in layouts:
-                if layout.name and layout.name.lower() == key:
-                    return layout
-        for key in ("default", "blank"):
-            for layout in layouts:
-                if layout.name and key in layout.name.lower():
-                    return layout
-
-        return layouts[0]
+        return _fallback_layout(list(prs.slide_layouts))
 
     print(f"Error: layout '{identifier}' not found", file=sys.stderr)
     sys.exit(1)
@@ -654,106 +672,111 @@ def _slide_word_count(slide: Slide) -> int:
     return total
 
 
-def cmd_show(args: _ShowArgs) -> int:
-    """Progressive drill-down: file → slide list, slide → shapes, shape → detail."""
-    from .inspect_pptx import (
-        get_slide_comments,
-        inspect_chart,
-        inspect_shape,
-        inspect_slide,
-        list_slides,
-    )
+def _show_file_summary(prs: PresentationObj, file_path: str) -> None:
+    from .inspect_pptx import get_slide_comments, list_slides
 
-    prs = _open(args.file)
-
-    # Level 0: slide list
-    if args.slide is None:
-        total = len(prs.slides)
-        print(f"\n  {args.file}  ({total} slide{'s' if total != 1 else ''})\n")
-        for entry in list_slides(prs):
-            slide = prs.slides[entry["slide"] - 1]
-            layout_name = slide.slide_layout.name
-            shapes_n = len(slide.shapes)
-            words = _slide_word_count(slide)
-            title = entry["title"][:60] or "(no title)"
-            comments = get_slide_comments(slide)
-            cm_str = f"  {len(comments)}cm" if comments else ""
-            print(
-                f"  {entry['slide']:3d}  {title:62s}  [{layout_name}]  {shapes_n}sh  {words}w{cm_str}"
-            )
-        print()
-        return 0
-
-    # Level 1: shapes on a slide
-    slide = _get_slide(prs, args.slide)
-
-    if args.shape is None:
-        # Header
-        title = "(no title)"
-        subtitle = ""
-
-        title_shape = slide.shapes.title
-        if title_shape is not None:
-            title = title_shape.text.replace("\x0b", " | ").replace("\n", " | ")
-
-        for s in slide.shapes:
-            if _is_text_shape(s) and s.is_placeholder and s.placeholder_format.idx == 1:
-                subtitle = s.text.replace("\x0b", " | ").replace("\n", " | ")
-                break
-
-        layout = slide.slide_layout
-        layout_phs: list[str] = []
-        for ph in layout.placeholders:
-            layout_phs.append(f"ph{ph.placeholder_format.idx}:{ph.name}")
-
-        print(f"\n  Slide {args.slide}: {title}")
-        if subtitle:
-            print(f"  {subtitle}")
-        print(
-            f"  Layout: \"{layout.name}\" → {', '.join(layout_phs) if layout_phs else '(no placeholders)'}"
-        )
-        print()
-
-        # All shapes, sorted by position (inspect_slide already sorts by top, left)
-        shapes = inspect_slide(slide)
-        for s in shapes:
-            real_shape = list(slide.shapes)[s.index]
-            cat = _classify_shape_type(real_shape)
-
-            ph_str = f"ph{s.placeholder_idx}" if s.placeholder_idx is not None else ""
-            type_str = f"{cat}" if not ph_str else f"{ph_str}"
-
-            text = ""
-            if s.text_preview:
-                preview = s.text_preview[:60]
-                if len(s.text_preview) > 60:
-                    preview += "…"
-                text = f"  «{preview}»"
-
-            print(
-                f"  [{s.index:2d}] {type_str:8s}  {s.left:5.2f},{s.top:5.2f}  {s.width:5.2f}x{s.height:5.2f}  {s.name:30s}{text}"
-            )
-
-        # Comments
+    total = len(prs.slides)
+    print(f"\n  {file_path}  ({total} slide{'s' if total != 1 else ''})\n")
+    for entry in list_slides(prs):
+        slide = prs.slides[entry["slide"] - 1]
+        layout_name = slide.slide_layout.name
+        shapes_n = len(slide.shapes)
+        words = _slide_word_count(slide)
+        title = entry["title"][:60] or "(no title)"
         comments = get_slide_comments(slide)
-        if comments:
-            print(f"\n  Comments ({len(comments)}):")
-            for cm in comments:
-                author = cm.author
-                preview = cm.text[:120]
-                if len(cm.text) > 120:
-                    preview += "…"
-                print(f"    [{author}] {preview}")
+        cm_str = f"  {len(comments)}cm" if comments else ""
+        print(f"  {entry['slide']:3d}  {title:62s}  [{layout_name}]  {shapes_n}sh  {words}w{cm_str}")
+    print()
 
-        print()
-        return 0
 
-    # Level 2: shape detail (JSON)
-    shape = _find_shape(slide, args.shape)
+def _show_slide_header(slide: Slide, slide_label: str) -> None:
+    title = "(no title)"
+    subtitle = ""
+
+    title_shape = slide.shapes.title
+    if title_shape is not None:
+        title = title_shape.text.replace("\x0b", " | ").replace("\n", " | ")
+
+    for shape in slide.shapes:
+        if _is_text_shape(shape) and shape.is_placeholder and shape.placeholder_format.idx == 1:
+            subtitle = shape.text.replace("\x0b", " | ").replace("\n", " | ")
+            break
+
+    layout = slide.slide_layout
+    layout_phs = [f"ph{ph.placeholder_format.idx}:{ph.name}" for ph in layout.placeholders]
+
+    print(f"\n  Slide {slide_label}: {title}")
+    if subtitle:
+        print(f"  {subtitle}")
+    print(f"  Layout: \"{layout.name}\" → {', '.join(layout_phs) if layout_phs else '(no placeholders)'}")
+    print()
+
+
+def _show_slide_shapes(slide: Slide) -> None:
+    from .inspect_pptx import inspect_slide
+
+    shapes = inspect_slide(slide)
+    for item in shapes:
+        real_shape = list(slide.shapes)[item.index]
+        cat = _classify_shape_type(real_shape)
+
+        ph_str = f"ph{item.placeholder_idx}" if item.placeholder_idx is not None else ""
+        type_str = ph_str if ph_str else cat
+
+        text = ""
+        if item.text_preview:
+            preview = item.text_preview[:60]
+            if len(item.text_preview) > 60:
+                preview += "…"
+            text = f"  «{preview}»"
+
+        print(
+            f"  [{item.index:2d}] {type_str:8s}  {item.left:5.2f},{item.top:5.2f}  {item.width:5.2f}x{item.height:5.2f}  {item.name:30s}{text}"
+        )
+
+
+def _show_slide_comments(slide: Slide) -> None:
+    from .inspect_pptx import get_slide_comments
+
+    comments = get_slide_comments(slide)
+    if not comments:
+        return
+
+    print(f"\n  Comments ({len(comments)}):")
+    for comment in comments:
+        preview = comment.text[:120]
+        if len(comment.text) > 120:
+            preview += "…"
+        print(f"    [{comment.author}] {preview}")
+
+
+def _show_shape_detail_json(slide: Slide, shape_identifier: str) -> None:
+    from .inspect_pptx import inspect_chart, inspect_shape
+
+    shape = _find_shape(slide, shape_identifier)
     if shape.has_chart if hasattr(shape, "has_chart") else False:
         _json_out(inspect_chart(shape))
     else:
         _json_out(inspect_shape(shape))
+
+
+def cmd_show(args: _ShowArgs) -> int:
+    """Progressive drill-down: file → slide list, slide → shapes, shape → detail."""
+    prs = _open(args.file)
+
+    if args.slide is None:
+        _show_file_summary(prs, args.file)
+        return 0
+
+    slide = _get_slide(prs, args.slide)
+    if args.shape is None:
+        _show_slide_header(slide, args.slide)
+        _show_slide_shapes(slide)
+        _show_slide_comments(slide)
+        print()
+        return 0
+
+    _show_shape_detail_json(slide, args.shape)
     return 0
 
 
@@ -1474,6 +1497,218 @@ def _hint_init() -> None:
         )
 
 
+def _resolve_generate_template_path(template_path: str | None) -> str | None:
+    if template_path is not None:
+        return template_path
+
+    discovered_tpl = _discover_template()
+    if discovered_tpl is not None:
+        return str(discovered_tpl)
+
+    return None
+
+
+def _init_generate_presentation(template_path: str | None) -> PresentationObj:
+    if template_path:
+        prs = Presentation(template_path)
+        # Remove template's content slides - keep only layouts/masters
+        _delete_all_slides(prs)
+        return prs
+
+    _hint_init()
+    prs = Presentation()
+    prs.slide_width = Emu(int(Layout.SLIDE_WIDTH))
+    prs.slide_height = Emu(int(Layout.SLIDE_HEIGHT))
+    return prs
+
+
+def _load_validated_generate_data(path: Path) -> tuple[YamlDict, bool] | None:
+    data = load_yaml(str(path))
+    errors, warnings = validate_spec(data)
+    if errors:
+        print(f"{path}:\n  - " + "\n  - ".join(errors), file=sys.stderr)
+        return None
+    if warnings:
+        print(f"{path}:\n  - " + "\n  - ".join(warnings))
+
+    has_table = _is_str_object_dict(data.get("table")) and bool(data.get("table"))
+    return data, has_table
+
+
+def _resolve_generate_slide(
+    prs: PresentationObj,
+    data: YamlDict,
+    slide_index: int | None,
+) -> tuple[Slide, SlideLayout | None, str | None] | None:
+    layout_override: str | None = None
+
+    if slide_index is not None:
+        if slide_index < 0 or slide_index >= len(prs.slides):
+            print("slide_index out of range", file=sys.stderr)
+            return None
+
+        slide = prs.slides[slide_index]
+        if "content_layout" not in data and "layout" not in data:
+            layout_override = _infer_layout_from_slide(slide)
+
+        return slide, None, layout_override
+
+    slide_layout_name = str(data.get("slide_layout") or "Default")
+    slide_layout_obj = _find_layout(prs, slide_layout_name, fallback=True)
+    slide = prs.slides.add_slide(slide_layout_obj)
+    return slide, slide_layout_obj, None
+
+
+def _render_chart_cells_for_spec(
+    slide: Slide,
+    spec: TableSpec,
+    layout: TableLayout,
+    area: ContentArea,
+) -> None:
+    if not spec.chart_defs:
+        return
+
+    from .chart_render import render_chart_cells
+    from .charts import load_charts_module
+
+    charts_mod = load_charts_module()
+    body_pt = layout.body_font_size // 100
+    render_chart_cells(
+        slide,
+        spec,
+        layout,
+        area,
+        charts_mod,
+        label_font_size_pt=body_pt,
+    )
+
+
+def _render_sidebar_content(
+    data: YamlDict,
+    slide_layout_obj: SlideLayout | None,
+    renderer: TableRenderer,
+    metrics: TextMetrics,
+) -> None:
+    sidebar_raw = data.get("sidebar")
+    if sidebar_raw is None or slide_layout_obj is None:
+        return
+
+    sidebar_area = _sidebar_content_area(slide_layout_obj)
+    if sidebar_area is None:
+        print("  WARNING: sidebar content specified but layout has no secondary content area")
+        return
+
+    from .content import Paragraph, normalize_cell
+
+    default_para = Paragraph(text="", lvl=0)
+    sidebar_paras = normalize_cell(sidebar_raw, default_para, parse_bullets=True)
+    if not sidebar_paras:
+        return
+
+    if data.get("sidebar_shrink"):
+        _shrink_sidebar_to_fit(sidebar_paras, sidebar_area, metrics)
+    else:
+        _warn_sidebar_overflow(sidebar_paras, sidebar_area, metrics)
+
+    renderer.render_sidebar(sidebar_paras, sidebar_area)
+
+
+def _render_table_for_input(
+    path: Path,
+    slide: Slide,
+    slide_layout_obj: SlideLayout | None,
+    data: YamlDict,
+    layout_override: str | None,
+    solver: ConstraintSolver,
+    metrics: TextMetrics,
+    *,
+    detail: bool,
+    target_slide_index: int | None,
+    keep_existing: bool,
+) -> None:
+    spec, area, options, placeholders = parse_spec(data, layout_override=layout_override)
+    if placeholders:
+        spec = fill_placeholders(spec)
+
+    # Derive content area from the layout's primary content placeholder
+    # unless the YAML explicitly overrides via content_area / content_layout.
+    if slide_layout_obj is not None and "content_area" not in data:
+        layout_area = _content_area_from_layout(slide_layout_obj)
+        if layout_area is not None:
+            area = layout_area
+
+    if target_slide_index is not None and not keep_existing:
+        _clear_content_area(slide, area)
+
+    layout, report = solver.solve(spec, area, options)
+    print(f"{path}: {report.to_text(detail=detail)}")
+
+    sp_tree = slide.shapes.element
+
+    shape_id: int = TableDefaults.SHAPE_ID_START
+
+    def next_shape_id() -> int:
+        nonlocal shape_id
+        shape_id += 1
+        return shape_id
+
+    renderer = TableRenderer(sp_tree, next_shape_id, slide_part=slide.part)
+    renderer.render(spec, layout, area)
+
+    _render_chart_cells_for_spec(slide, spec, layout, area)
+    _render_sidebar_content(data, slide_layout_obj, renderer, metrics)
+
+
+def _finalize_generated_slide(slide: Slide, data: YamlDict) -> None:
+    fill_slide_metadata(slide, data)
+
+    # Agent-friendly: warn when title/subtitle likely wrap beyond configured limits.
+    for shape in slide.shapes:
+        if isinstance(shape, Shape) and shape.has_text_frame:
+            _warn_placeholder_text_limits(slide, shape)
+
+    _clear_body_placeholders(slide)
+
+
+def _process_generate_input(
+    path: Path,
+    prs: PresentationObj,
+    args: _GenerateArgs,
+    solver: ConstraintSolver,
+    metrics: TextMetrics,
+) -> bool:
+    loaded = _load_validated_generate_data(path)
+    if loaded is None:
+        return False
+
+    data, has_table = loaded
+
+    resolved = _resolve_generate_slide(prs, data, args.slide_index)
+    if resolved is None:
+        return False
+
+    slide, slide_layout_obj, layout_override = resolved
+
+    if has_table:
+        _render_table_for_input(
+            path,
+            slide,
+            slide_layout_obj,
+            data,
+            layout_override,
+            solver,
+            metrics,
+            detail=args.detail,
+            target_slide_index=args.slide_index,
+            keep_existing=args.keep_existing,
+        )
+    else:
+        print(f"{path}: metadata-only slide (no table)")
+
+    _finalize_generated_slide(slide, data)
+    return True
+
+
 def cmd_generate(args: _GenerateArgs) -> int:
     """Generate PPTX for text-only tables."""
     _apply_config(args.config)
@@ -1483,130 +1718,16 @@ def cmd_generate(args: _GenerateArgs) -> int:
         print("No input files found", file=sys.stderr)
         return 1
 
-    # Resolve template: explicit flag → auto-discovered → blank
-    template_path = args.template
-    if template_path is None:
-        discovered_tpl = _discover_template()
-        if discovered_tpl is not None:
-            template_path = str(discovered_tpl)
-
-    if template_path:
-        prs = Presentation(template_path)
-        # Remove template's content slides - keep only layouts/masters
-        _delete_all_slides(prs)
-    else:
-        _hint_init()
-        prs = Presentation()
-        prs.slide_width = Emu(int(Layout.SLIDE_WIDTH))
-        prs.slide_height = Emu(int(Layout.SLIDE_HEIGHT))
+    template_path = _resolve_generate_template_path(args.template)
+    prs = _init_generate_presentation(template_path)
 
     metrics = TextMetrics()
     solver = ConstraintSolver(metrics)
 
     for path in input_files:
-        data = load_yaml(str(path))
-        errors, warnings = validate_spec(data)
-        if errors:
-            print(f"{path}:\n  - " + "\n  - ".join(errors), file=sys.stderr)
+        ok = _process_generate_input(path, prs, args, solver, metrics)
+        if not ok:
             return 1
-        if warnings:
-            print(f"{path}:\n  - " + "\n  - ".join(warnings))
-
-        has_table = _is_str_object_dict(data.get("table")) and bool(data.get("table"))
-
-        layout_override: str | None = None
-        slide: Slide | None = None
-        if args.slide_index is not None:
-            if args.slide_index < 0 or args.slide_index >= len(prs.slides):
-                print("slide_index out of range", file=sys.stderr)
-                return 1
-            slide = prs.slides[args.slide_index]
-            if "content_layout" not in data and "layout" not in data:
-                layout_override = _infer_layout_from_slide(slide)
-
-        # ---- Resolve slide layout & create slide ----
-        slide_layout_obj: SlideLayout | None = None
-        if slide is None:
-            slide_layout_name = str(data.get("slide_layout") or "Default")
-            slide_layout_obj = _find_layout(prs, slide_layout_name, fallback=True)
-            slide = prs.slides.add_slide(slide_layout_obj)
-
-        if has_table:
-            spec, area, options, placeholders = parse_spec(data, layout_override=layout_override)
-            if placeholders:
-                spec = fill_placeholders(spec)
-
-            # Derive content area from the layout's primary content placeholder
-            # unless the YAML explicitly overrides via content_area / content_layout.
-            if slide_layout_obj is not None and "content_area" not in data:
-                layout_area = _content_area_from_layout(slide_layout_obj)
-                if layout_area is not None:
-                    area = layout_area
-
-            if args.slide_index is not None and not args.keep_existing:
-                _clear_content_area(slide, area)
-
-            layout, report = solver.solve(spec, area, options)
-            print(f"{path}: {report.to_text(detail=args.detail)}")
-
-            spTree = slide.shapes.element
-
-            shape_id: int = TableDefaults.SHAPE_ID_START
-
-            def next_shape_id() -> int:
-                nonlocal shape_id
-                shape_id += 1
-                return shape_id
-
-            renderer = TableRenderer(spTree, next_shape_id, slide_part=slide.part)
-            renderer.render(spec, layout, area)
-
-            # Chart cells: render native chart shapes in merged cell regions
-            if spec.chart_defs:
-                from .chart_render import render_chart_cells
-                from .charts import load_charts_module
-
-                charts_mod = load_charts_module()
-                body_pt = layout.body_font_size // 100
-                render_chart_cells(
-                    slide,
-                    spec,
-                    layout,
-                    area,
-                    charts_mod,
-                    label_font_size_pt=body_pt,
-                )
-
-            # Sidebar: fill secondary content area with formatted paragraphs
-            sidebar_raw = data.get("sidebar")
-            if sidebar_raw is not None and slide_layout_obj is not None:
-                sidebar_area = _sidebar_content_area(slide_layout_obj)
-                if sidebar_area is not None:
-                    from .content import Paragraph, normalize_cell
-
-                    default_para = Paragraph(text="", lvl=0)
-                    sidebar_paras = normalize_cell(sidebar_raw, default_para, parse_bullets=True)
-                    if sidebar_paras:
-                        if data.get("sidebar_shrink"):
-                            _shrink_sidebar_to_fit(sidebar_paras, sidebar_area, metrics)
-                        else:
-                            _warn_sidebar_overflow(sidebar_paras, sidebar_area, metrics)
-                        renderer.render_sidebar(sidebar_paras, sidebar_area)
-                else:
-                    print(
-                        "  WARNING: sidebar content specified but layout has no secondary content area"
-                    )
-        else:
-            print(f"{path}: metadata-only slide (no table)")
-
-        fill_slide_metadata(slide, data)
-
-        # Agent-friendly: warn when title/subtitle likely wrap beyond configured limits.
-        for sh in slide.shapes:
-            if isinstance(sh, Shape) and sh.has_text_frame:
-                _warn_placeholder_text_limits(slide, sh)
-
-        _clear_body_placeholders(slide)
 
     output_path = args.output or "output.pptx"
     prs.save(output_path)
