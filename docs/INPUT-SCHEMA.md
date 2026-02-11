@@ -242,6 +242,8 @@ Use `row_groups` instead of `rows` + `row_headers` to create category-grouped ta
 
 When using `row_groups`, omit `rows` and `row_headers` — the row count and row-header column are derived from the groups. You still need `cols` (total columns including the superheader column).
 
+**Convenience for chart tables**: if a group has an empty `header`, exactly one row, and that row contains a chart ref (e.g. `wf-1`), the first body cell is automatically promoted to the group header. The promoted header spans the row-header column + first body column, avoiding blank superheader bands for singleton start/total rows.
+
 ### Minimal Example
 
 ```yaml

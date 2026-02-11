@@ -1,24 +1,79 @@
-"""Chart generation wrapper for the clean-slides CLI.
+"""Typed facade for chart generation.
 
-Loads the JSON chart generator module and runs it without exposing
-internal implementation details in the CLI layer.
+Uses the bundled chart engine implementation shipped inside ``clean_slides``.
 """
 
 from __future__ import annotations
 
-import importlib.util
-import os
 from pathlib import Path
-from types import ModuleType
-from typing import Any
+from typing import Any, Protocol, cast
 
-_CHARTS_ENV_VAR = "CLEAN_SLIDES_CHARTS_PATH"
+from . import chart_generator
+
+
+class ChartEngine(Protocol):
+    """Structural interface implemented by the bundled chart engine module."""
+
+    Presentation: Any
+
+    def load_spec(self, path: Path) -> Any: ...
+
+    def normalize_chart_specs(self, raw: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]: ...
+
+    def resolve_expected_template(
+        self,
+        spec: dict[str, Any],
+        spec_path: Path,
+        expected_template: str | Path | None,
+    ) -> Path | None: ...
+
+    def ensure_expected_template(self, expected: Path, actual: Path | None) -> None: ...
+
+    def build_chart(
+        self,
+        prs: Any,
+        spec: dict[str, Any],
+        output_path: Path,
+        template_path: Path | None = None,
+        layout_name: str | None = None,
+        save: bool = True,
+        defer_template_copy: bool = False,
+    ) -> list[Any]: ...
+
+    def apply_chart_template_replacements(
+        self, output_path: Path, replacements: list[Any]
+    ) -> None: ...
+
+    def build_bar_payload(self, spec: dict[str, Any]) -> tuple[Any, Any, dict[str, Any]]: ...
+
+    def build_waterfall_payload(self, spec: dict[str, Any]) -> tuple[Any, Any, dict[str, Any]]: ...
+
+    def apply_series_colors(self, chart: Any, colors: list[str | None]) -> None: ...
+
+    def apply_bar_chart_style(self, chart: Any, meta: dict[str, Any]) -> None: ...
+
+    def apply_data_label_style(self, labels: Any, data_cfg: dict[str, Any]) -> None: ...
+
+    def apply_waterfall_style(self, chart: Any, meta: dict[str, Any]) -> None: ...
+
+    def apply_waterfall_chart_style(self, chart: Any, meta: dict[str, Any]) -> None: ...
+
+    def add_waterfall_overlays(
+        self,
+        slide: Any,
+        chart_box: tuple[int, int, int, int],
+        meta: dict[str, Any],
+        slide_size: tuple[int, int] | None = None,
+    ) -> None: ...
+
+    def apply_color(self, target: Any, value: Any) -> bool: ...
 
 
 def _to_str_dict(value: object) -> dict[str, Any]:
     """Safely coerce an unknown mapping to ``dict[str, Any]``."""
     if not isinstance(value, dict):
         return {}
+
     result: dict[str, Any] = {}
     items: list[tuple[str, Any]] = list(value.items())  # type: ignore[arg-type]
     for k, v in items:
@@ -26,55 +81,20 @@ def _to_str_dict(value: object) -> dict[str, Any]:
     return result
 
 
-_MODULE_CACHE: dict[Path, ModuleType] = {}
+def load_chart_engine() -> ChartEngine:
+    """Return the bundled chart engine implementation."""
+    return cast(ChartEngine, chart_generator)
 
 
-def _coerce_module_path(raw: str | Path) -> Path:
-    path = Path(raw).expanduser()
-    if path.is_dir():
-        path = path / "generate_bar_chart.py"
-    return path.resolve()
+def load_charts_module() -> ChartEngine:
+    """Backward-compatible alias for callers still using the old name."""
+    return load_chart_engine()
 
 
-def resolve_charts_module_path(input_path: Path, module_path: str | None) -> Path:
-    if module_path:
-        candidate = _coerce_module_path(module_path)
-    else:
-        env_value = os.getenv(_CHARTS_ENV_VAR)
-        if env_value:
-            candidate = _coerce_module_path(env_value)
-        else:
-            for base in (input_path.parent, Path.cwd()):
-                candidate = base / "generate_bar_chart.py"
-                if candidate.is_file():
-                    return candidate.resolve()
-            raise FileNotFoundError(
-                "Charts module not found. Pass --module-path or set "
-                f"{_CHARTS_ENV_VAR} to the chart generator script."
-            )
-
-    if not candidate.is_file():
-        raise FileNotFoundError(
-            "Charts module not found. Pass --module-path or set "
-            f"{_CHARTS_ENV_VAR} to the chart generator script."
-        )
-    return candidate
-
-
-def load_charts_module(module_path: Path) -> ModuleType:
-    module_path = module_path.resolve()
-    cached = _MODULE_CACHE.get(module_path)
-    if cached is not None:
-        return cached
-
-    spec = importlib.util.spec_from_file_location("clean_slides._charts_ext", module_path)
-    if spec is None or spec.loader is None:
-        raise ImportError("Unable to load chart generator module")
-
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    _MODULE_CACHE[module_path] = module
-    return module
+def resolve_charts_module_path() -> Path:
+    """Return the filesystem path to the bundled chart engine module."""
+    module_file = chart_generator.__file__
+    return Path(module_file).resolve()
 
 
 def generate_charts_from_json(
@@ -84,10 +104,8 @@ def generate_charts_from_json(
     template: Path | None = None,
     layout: str | None = None,
     expected_template: str | None = None,
-    module_path: str | None = None,
 ) -> None:
-    charts_module_path = resolve_charts_module_path(input_path, module_path)
-    charts = load_charts_module(charts_module_path)
+    charts = load_chart_engine()
 
     raw_spec = charts.load_spec(input_path)
     chart_specs, deck_meta = charts.normalize_chart_specs(raw_spec)
@@ -120,6 +138,8 @@ def generate_charts_from_json(
     for idx, spec in enumerate(chart_specs):
         if idx > 0 and "append_slide" not in spec:
             spec["append_slide"] = True
+        if "_base_dir" not in spec:
+            spec["_base_dir"] = str(input_path.parent.resolve())
         template_replacements.extend(
             charts.build_chart(
                 prs,

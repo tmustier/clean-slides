@@ -139,9 +139,12 @@ class ConstraintSolver:
                     max_body = max(max_body, p.size_pt or options.body_font_pt)
 
         header_pt = max(options.header_font_pt, max_body)
-        # Row superheaders render larger than headers
+        # Keep one consistent row-superheader size across the whole table.
+        # If any grouped header is auto-promoted (singleton start/total rows),
+        # use body size for *all* row superheaders for visual consistency.
+        has_promoted_group = bool(spec.groups and any(g.promoted for g in spec.groups))
         superheader_pt = (
-            header_pt + TableDefaults.SUPERHEADER_PT_BOOST if spec.is_grouped else header_pt
+            options.body_font_pt if (spec.is_grouped and has_promoted_group) else header_pt
         )
         return FontConfig(
             body_font=Fonts.BODY,

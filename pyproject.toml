@@ -82,3 +82,18 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["clean_slides"]
+
+[tool.ruff.lint.per-file-ignores]
+"clean_slides/chart_generator.py" = [
+    "B007",
+    "B008",
+    "F601",
+    "I001",
+    "RUF046",
+    "SIM102",
+    "SIM103",
+    "SIM114",
+    "SIM211",
+    "UP032",
+    "UP035",
+]

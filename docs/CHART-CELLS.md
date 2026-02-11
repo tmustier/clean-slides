@@ -1,6 +1,6 @@
 # Chart Cells — Design Document
 
-> **Status**: Proposed. Not yet implemented.
+> **Status**: Implemented (alpha). Behavior and schema may still evolve.
 
 ## Summary
 
@@ -92,7 +92,8 @@ share the same type, direction, and formatting — only `values` differs.
 | `dir`      | string   | yes      | `horizontal` or `vertical` |
 | `values`   | list     | yes      | Numeric values, one per bar |
 | `format`   | string   | no       | Label format string. `{}` is replaced by the value. Default: `"{}"` |
-| `color`    | string   | no       | Bar fill color. Theme name (`accent1`, `dk2`) or hex (`#4472C4`). Default: template accent. |
+| `color`    | string   | no       | Default bar fill color. Theme name (`accent1`, `dk2`) or hex (`#4472C4`). |
+| `colors`   | list     | no       | Optional per-point colors (`null` to keep default). Must match `values` length. Useful for waterfall exceptions (e.g. gray opex bars). |
 | `label_position` | string | no  | `above` (default for vertical), `right` (default for horizontal), `on`, `none` |
 | `scale_max`| number   | no       | Override automatic scale maximum |
 

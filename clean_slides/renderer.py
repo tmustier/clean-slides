@@ -143,8 +143,9 @@ class TableRenderer:
             bold=False,
         )
 
-        # Row superheaders: +N pt over headers
-        superheader_pt = header_pt + TableDefaults.SUPERHEADER_PT_BOOST
+        has_promoted_group = bool(spec.groups and any(g.promoted for g in spec.groups))
+        # One consistent row-superheader size across grouped tables.
+        superheader_pt = body_pt if has_promoted_group else header_pt
         row_superheader_default = Paragraph(
             text="",
             lvl=0,
@@ -167,7 +168,13 @@ class TableRenderer:
         )
 
         if spec.is_grouped:
-            self._render_superheaders(spec, layout, row_offset, row_superheader_default)
+            self._render_superheaders(
+                spec,
+                layout,
+                row_offset,
+                row_superheader_default,
+                row_superheader_default,
+            )
             self._render_body(spec, layout, row_offset, col_offset, body_default)
             self._render_grouped_dividers(spec, layout, area, row_offset, col_offset)
         else:
@@ -315,6 +322,7 @@ class TableRenderer:
         layout: TableLayout,
         row_offset: int,
         default: Paragraph,
+        promoted_default: Paragraph,
     ) -> None:
         groups = spec.groups
         if groups is None:
@@ -326,13 +334,22 @@ class TableRenderer:
             x, y, w, _ = layout.cells[grid_row][0]
             group_h = sum(layout.row_heights[grid_row : grid_row + group.num_rows])
 
-            paragraphs = normalize_cell(group.header, default, parse_bullets=False)
+            # Auto-promoted singleton headers can span the first body column,
+            # avoiding a visually empty superheader band.
+            para_default = default
+            right_pad = self._col_right_pads[0]
+            if group.promoted and len(layout.col_widths) > 1:
+                w += layout.col_widths[1]
+                para_default = promoted_default
+                right_pad = self._col_right_pads[1]
+
+            paragraphs = normalize_cell(group.header, para_default, parse_bullets=False)
             self._add_cell(
                 (x, y, w, group_h),
                 paragraphs,
                 pad_top=layout.pad_top,
                 pad_bottom=layout.pad_bottom,
-                right_pad=self._col_right_pads[0],
+                right_pad=right_pad,
                 use_line_breaks=True,
             )
             sub_row += group.num_rows

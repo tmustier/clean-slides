@@ -177,7 +177,6 @@ def build_parser(
     p.add_argument("-t", "--template", help="Template PPTX")
     p.add_argument("--layout", help="Layout name when using a template")
     p.add_argument("--expected-template", help="Expected template alias/path")
-    p.add_argument("--module-path", help="Path to chart generator module")
     p.set_defaults(func=cmd_charts)
 
     # ── Generate (YAML pipeline) ───────────────────────────────────────

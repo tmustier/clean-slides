@@ -74,6 +74,14 @@ def fill_placeholders(spec: TableSpec) -> TableSpec:
         while len(row_headers) < expected_row_headers:
             row_headers.append(placeholder_title())
 
+    promoted_group_rows: set[int] = set()
+    if spec.is_grouped and spec.groups:
+        sub_row = 0
+        for group in spec.groups:
+            if group.promoted:
+                promoted_group_rows.add(sub_row)
+            sub_row += group.num_rows
+
     filled_cells: list[list[Any]] = []
     for r in range(spec.num_rows):
         row: list[Any] = cells[r] if r < len(cells) else []
@@ -83,6 +91,10 @@ def fill_placeholders(spec: TableSpec) -> TableSpec:
             # Chart references are not text — leave them as-is
             if isinstance(value, ChartRef):
                 new_row.append(value)
+            # Promoted singleton-group first cell is intentionally blank;
+            # keep it blank instead of injecting placeholder text.
+            elif c == 0 and r in promoted_group_rows and value == "":
+                new_row.append("")
             elif not value:
                 new_row.append(placeholder_body())
             else:

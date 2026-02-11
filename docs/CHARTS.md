@@ -20,8 +20,7 @@ pptx charts spec.json output.pptx \
   --expected-template clean-slides
 ```
 
-If the chart generator module is not found automatically, pass `--module-path` or set
-`CLEAN_SLIDES_CHARTS_PATH` to the generator script path.
+The chart engine is bundled with `clean-slides`; no external module path is required.
 
 ## Base schema
 

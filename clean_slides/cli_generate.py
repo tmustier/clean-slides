@@ -401,7 +401,6 @@ def _resolve_generate_slide(
 
 
 def _render_chart_cells_for_spec(
-    input_path: Path,
     slide: Slide,
     spec: TableSpec,
     layout: TableLayout,
@@ -411,10 +410,9 @@ def _render_chart_cells_for_spec(
         return
 
     from .chart_render import render_chart_cells
-    from .charts import load_charts_module, resolve_charts_module_path
+    from .charts import load_charts_module
 
-    charts_module_path = resolve_charts_module_path(input_path, module_path=None)
-    charts_mod = load_charts_module(charts_module_path)
+    charts_mod = load_charts_module()
     body_pt = layout.body_font_size // 100
     render_chart_cells(
         slide,
@@ -498,7 +496,7 @@ def _render_table_for_input(
     renderer = TableRenderer(sp_tree, next_shape_id, slide_part=slide.part)
     renderer.render(spec, layout, area)
 
-    _render_chart_cells_for_spec(path, slide, spec, layout, area)
+    _render_chart_cells_for_spec(slide, spec, layout, area)
     _render_sidebar_content(data, slide_layout_obj, renderer, metrics)
 
 

@@ -21,7 +21,7 @@ from .measure import (
     text_width_for_level,
     textbox_width,
 )
-from .spec import ChartRef, TableSpec, is_icon_cell
+from .spec import ChartDef, ChartRef, TableSpec, is_icon_cell
 from .text_metrics import EMU_PER_PT, TextMetrics
 
 
@@ -34,6 +34,14 @@ class SizingWarning:
 # Safety factor on min-widths — PowerPoint text shaping wraps slightly
 # earlier than our character-width estimates.
 _MIN_WIDTH_SAFETY = 1.10
+
+# Chart width heuristics (EMU).
+# Keep chart-only columns usable without forcing full-table stretch.
+_CHART_LABEL_CHAR_WIDTH_FACTOR = 0.60
+_CHART_MIN_PLOT_WIDTH = 685_800  # 0.75in
+_CHART_PREF_PLOT_WIDTH = 1_051_560  # 1.15in
+_CHART_VERTICAL_MIN_SLOT_WIDTH = 256_032  # 0.28in per bar slot
+_CHART_VERTICAL_PREF_SLOT_WIDTH = 365_760  # 0.40in per bar slot
 
 # ---------------------------------------------------------------------------
 # Font config bundle — avoids passing 4+ font args through every method
@@ -123,9 +131,15 @@ class ColumnSizer:
                 not explicit_weights or len(col_widths) == col_count
             )
             if should_cap:
-                cap = self._row_header_preferred_width(spec, metrics, fonts)
-                cap += col_right_pads[0] if col_right_pads else 0
-                cap = max(cap, min_widths[0])
+                # Grouped row headers should stay close to their target-line
+                # minimum. Using no-wrap preferred widths over-allocates this
+                # column and starves body columns.
+                if spec.is_grouped:
+                    cap = min_widths[0]
+                else:
+                    cap = self._row_header_preferred_width(spec, metrics, fonts)
+                    cap += col_right_pads[0] if col_right_pads else 0
+                    cap = max(cap, min_widths[0])
                 if widths and widths[0] > cap:
                     overflow = widths[0] - cap
                     widths[0] = cap
@@ -156,14 +170,9 @@ class ColumnSizer:
         total_max = sum(max_widths)
 
         if total_max <= area_width:
-            # Everything fits without wrapping.  When chart columns exist
-            # distribute the remaining slack so the table fills the area
-            # (chart cells expand to use whatever space is available).
-            has_charts = bool(spec.chart_defs)
-            slack = area_width - total_max
-            if has_charts and slack > 0:
-                weights = self._column_weights(spec, col_count)
-                max_widths = self._distribute(max_widths, slack, weights)
+            # Everything fits without wrapping — use max widths directly.
+            # Keep the default auto-layout semantics: do not force-fill the
+            # available area just because charts are present.
             self._equalize_chart_cols(spec, max_widths)
             return max_widths, warnings
 
@@ -249,14 +258,20 @@ class ColumnSizer:
                 )
             )
 
+        single_span_super = self._single_span_col_superheader_widths(spec, metrics, fonts)
+
         body_default = _body_default(spec, fonts)
         icon_min = spec.icons.size_emu if spec.icons else 0
+        col_offset = 1 if spec.has_row_header else 0
         for col_idx in range(spec.num_cols):
+            grid_col_idx = col_idx + col_offset
             header_w = self._header_word_width(spec, col_idx, metrics, fonts)
+            header_w = max(header_w, single_span_super.get(grid_col_idx, 0))
             body_w = self._body_word_width(spec, col_idx, metrics, fonts, body_default)
+            chart_w = self._chart_width_for_column(spec, col_idx, fonts, preferred=False)
             # Icon columns need at least icon_size as minimum
             floor = icon_min if self._is_icon_column(spec, col_idx) else 1
-            mins.append(int(max(header_w, body_w, floor) * _MIN_WIDTH_SAFETY))
+            mins.append(int(max(header_w, body_w, chart_w, floor) * _MIN_WIDTH_SAFETY))
 
         return mins
 
@@ -273,60 +288,87 @@ class ColumnSizer:
         Must fit every text that renders in column 0:
           - row superheaders (grouped) or row headers (flat)
           - row_header_col_header (the col-header text for this column)
-          - first col_superheader label (spans this column)
+          - first col_superheader label (only when its span is 1)
         Each at its actual render font size.  A small safety margin is
         added because PowerPoint's text shaping may wrap slightly earlier
         than our metrics predict.
         """
         max_w = 0
 
-        # 1. Row superheaders / row headers — render at superheader size (grouped) or header size
-        size_pt = (
-            fonts.effective_row_superheader_size_pt if spec.is_grouped else fonts.header_size_pt
-        )
-        for header in spec.row_headers or []:
-            text, sub_text = header_text_and_sub(header)
+        # 1. Row superheaders / row headers
+        if spec.is_grouped and spec.groups:
+            size_pt = fonts.effective_row_superheader_size_pt
+            for group in spec.groups:
+                # Promoted singleton group headers span row-header + first body
+                # column, so they should not constrain row-header width alone.
+                if group.promoted:
+                    continue
+                text, sub_text = header_text_and_sub(group.header)
 
-            # Default min width is driven by the longest unbreakable token.
-            w = max(_longest_word_width(text, fonts.header_font, size_pt, metrics), 1)
-            if sub_text:
-                w = max(w, _longest_word_width(sub_text, fonts.header_font, size_pt, metrics))
+                # Default min width is driven by the longest unbreakable token.
+                w = max(_longest_word_width(text, fonts.header_font, size_pt, metrics), 1)
+                if sub_text:
+                    w = max(w, _longest_word_width(sub_text, fonts.header_font, size_pt, metrics))
 
-            # UX tweak: avoid clunky wraps like
-            #
-            #   "Matriarchal"
-            #   "herds"
-            #
-            # For labels with 2+ words, ensure *any adjacent pair* of words fits on
-            # one line. This makes the line-break algorithm much less likely to
-            # produce single-word lines.
-            words = [t for t in str(text).split() if t]
-            target_lines = TableDefaults.ROW_HEADER_TARGET_LINES
+                words = [t for t in str(text).split() if t]
+                target_lines = TableDefaults.ROW_HEADER_TARGET_LINES
 
-            if len(words) >= 2:
-                # Adjacent 2-word chunks treated as effectively unbreakable.
-                for i in range(len(words) - 1):
-                    pair = f"{words[i]} {words[i + 1]}"
-                    w = max(w, metrics.text_width_no_wrap(pair, fonts.header_font, size_pt))
+                if len(words) >= 2:
+                    for i in range(len(words) - 1):
+                        pair = f"{words[i]} {words[i + 1]}"
+                        w = max(w, metrics.text_width_no_wrap(pair, fonts.header_font, size_pt))
 
-            # Special-case: exactly 2 words → aim for a single line when possible.
-            if len(words) == 2:
-                target_lines = 1
+                if len(words) == 2:
+                    target_lines = 1
 
-            step = int(TableDefaults.WIDTH_STEP)
-            while (
-                metrics.lines_needed(text, w, fonts.header_font, size_pt) > target_lines
-                and w < area_width
-            ):
-                w += step
-            if metrics.lines_needed(text, w, fonts.header_font, size_pt) > target_lines:
-                warnings.append(
-                    SizingWarning(
-                        f"Row header exceeds {target_lines}-line target",
-                        {"header": text},
+                step = int(TableDefaults.WIDTH_STEP)
+                while (
+                    metrics.lines_needed(text, w, fonts.header_font, size_pt) > target_lines
+                    and w < area_width
+                ):
+                    w += step
+                if metrics.lines_needed(text, w, fonts.header_font, size_pt) > target_lines:
+                    warnings.append(
+                        SizingWarning(
+                            f"Row header exceeds {target_lines}-line target",
+                            {"header": text},
+                        )
                     )
-                )
-            max_w = max(max_w, w)
+                max_w = max(max_w, w)
+        else:
+            size_pt = fonts.header_size_pt
+            for header in spec.row_headers or []:
+                text, sub_text = header_text_and_sub(header)
+
+                w = max(_longest_word_width(text, fonts.header_font, size_pt, metrics), 1)
+                if sub_text:
+                    w = max(w, _longest_word_width(sub_text, fonts.header_font, size_pt, metrics))
+
+                words = [t for t in str(text).split() if t]
+                target_lines = TableDefaults.ROW_HEADER_TARGET_LINES
+
+                if len(words) >= 2:
+                    for i in range(len(words) - 1):
+                        pair = f"{words[i]} {words[i + 1]}"
+                        w = max(w, metrics.text_width_no_wrap(pair, fonts.header_font, size_pt))
+
+                if len(words) == 2:
+                    target_lines = 1
+
+                step = int(TableDefaults.WIDTH_STEP)
+                while (
+                    metrics.lines_needed(text, w, fonts.header_font, size_pt) > target_lines
+                    and w < area_width
+                ):
+                    w += step
+                if metrics.lines_needed(text, w, fonts.header_font, size_pt) > target_lines:
+                    warnings.append(
+                        SizingWarning(
+                            f"Row header exceeds {target_lines}-line target",
+                            {"header": text},
+                        )
+                    )
+                max_w = max(max_w, w)
 
         # 2. row_header_col_header — renders at header_size_pt
         if spec.row_header_col_header:
@@ -341,8 +383,14 @@ class ColumnSizer:
                     _longest_word_width(rhch_sub, fonts.header_font, fonts.header_size_pt, metrics),
                 )
 
-        # 3. First col superheader label (if it covers this column) — renders at header_size_pt
-        if spec.col_superheaders and spec.col_superheaders[0].label:
+        # 3. First col superheader label only constrains row-header width when
+        # it spans exactly one column. Wider spans are handled by combined
+        # span width, not this single column.
+        if (
+            spec.col_superheaders
+            and spec.col_superheaders[0].label
+            and spec.col_superheaders[0].span == 1
+        ):
             text = str(spec.col_superheaders[0].label)
             max_w = max(
                 max_w, _longest_word_width(text, fonts.header_font, fonts.header_size_pt, metrics)
@@ -368,27 +416,46 @@ class ColumnSizer:
         Returns the width of the widest single-line label that can appear in
         the row-header column (excluding the inter-column gap/right-pad).
 
-        Used to avoid wasting slack on the row-header column when explicit
-        full `column_widths` proportions are provided.
+        Used for flat-table width capping and max-width estimation.
         """
         max_w = 0
 
-        size_pt = (
-            fonts.effective_row_superheader_size_pt if spec.is_grouped else fonts.header_size_pt
-        )
-        for header in spec.row_headers or []:
-            text, sub_text = header_text_and_sub(header)
-            max_w = max(
-                max_w,
-                int(
-                    metrics.text_width_no_wrap(text, fonts.header_font, size_pt) * self._BOLD_FACTOR
-                ),
-            )
-            if sub_text:
+        if spec.is_grouped and spec.groups:
+            size_pt = fonts.effective_row_superheader_size_pt
+            for group in spec.groups:
+                # Promoted singleton group headers span row-header + first body
+                # column, so they should not constrain row-header width alone.
+                if group.promoted:
+                    continue
+                text, sub_text = header_text_and_sub(group.header)
                 max_w = max(
                     max_w,
-                    int(metrics.text_width_no_wrap(sub_text, fonts.header_font, size_pt)),
+                    int(
+                        metrics.text_width_no_wrap(text, fonts.header_font, size_pt)
+                        * self._BOLD_FACTOR
+                    ),
                 )
+                if sub_text:
+                    max_w = max(
+                        max_w,
+                        int(metrics.text_width_no_wrap(sub_text, fonts.header_font, size_pt)),
+                    )
+        else:
+            size_pt = fonts.header_size_pt
+            for header in spec.row_headers or []:
+                text, sub_text = header_text_and_sub(header)
+                max_w = max(
+                    max_w,
+                    int(
+                        metrics.text_width_no_wrap(text, fonts.header_font, size_pt)
+                        * self._BOLD_FACTOR
+                    ),
+                )
+                if sub_text:
+                    max_w = max(
+                        max_w,
+                        int(metrics.text_width_no_wrap(sub_text, fonts.header_font, size_pt)),
+                    )
 
         if spec.row_header_col_header:
             rhch_text, rhch_sub = header_text_and_sub(spec.row_header_col_header)
@@ -402,7 +469,11 @@ class ColumnSizer:
                     metrics.text_width_no_wrap(rhch_sub, fonts.header_font, fonts.header_size_pt),
                 )
 
-        if spec.col_superheaders and spec.col_superheaders[0].label:
+        if (
+            spec.col_superheaders
+            and spec.col_superheaders[0].label
+            and spec.col_superheaders[0].span == 1
+        ):
             max_w = max(
                 max_w,
                 metrics.text_width_no_wrap(
@@ -480,6 +551,152 @@ class ColumnSizer:
             col_idx < len(row) and isinstance(row[col_idx], ChartRef) for row in spec.cells or []
         )
 
+    @staticmethod
+    def _chart_column_spans(spec: TableSpec) -> dict[str, int]:
+        """Return chart-name -> body-column span across chart refs."""
+        if not spec.chart_defs or not spec.cells:
+            return {}
+
+        min_col_by_chart: dict[str, int] = {}
+        max_col_by_chart: dict[str, int] = {}
+
+        for row in spec.cells:
+            for col_idx, cell in enumerate(row):
+                if not isinstance(cell, ChartRef):
+                    continue
+                if cell.name not in spec.chart_defs:
+                    continue
+                if cell.name not in min_col_by_chart:
+                    min_col_by_chart[cell.name] = col_idx
+                    max_col_by_chart[cell.name] = col_idx
+                else:
+                    min_col_by_chart[cell.name] = min(min_col_by_chart[cell.name], col_idx)
+                    max_col_by_chart[cell.name] = max(max_col_by_chart[cell.name], col_idx)
+
+        spans: dict[str, int] = {}
+        for name, min_col in min_col_by_chart.items():
+            max_col = max_col_by_chart[name]
+            spans[name] = max(max_col - min_col + 1, 1)
+
+        return spans
+
+    @staticmethod
+    def _format_chart_label(chart_def: ChartDef, index_1_based: int) -> str:
+        """Return formatted value label for a chart point (best-effort)."""
+        idx = index_1_based - 1
+        if idx < 0 or idx >= len(chart_def.values):
+            return ""
+
+        value = chart_def.values[idx]
+        fmt = chart_def.format
+        if fmt and fmt != "{}":
+            try:
+                return str(fmt.format(value))
+            except (ValueError, IndexError, KeyError):
+                return str(value)
+        return str(value)
+
+    def _chart_width_for_column(
+        self,
+        spec: TableSpec,
+        col_idx: int,
+        fonts: FontConfig,
+        preferred: bool,
+    ) -> int:
+        """Estimated chart width contribution for one body column.
+
+        Returns a per-column width in EMU for chart-ref columns only.
+        Non-chart columns return 0.
+        """
+        if not spec.chart_defs or not spec.cells:
+            return 0
+
+        spans = self._chart_column_spans(spec)
+        label_char_emu = int(fonts.body_size_pt * EMU_PER_PT * _CHART_LABEL_CHAR_WIDTH_FACTOR)
+        max_col_width = 0
+
+        for row in spec.cells:
+            if col_idx >= len(row):
+                continue
+            cell = row[col_idx]
+            if not isinstance(cell, ChartRef):
+                continue
+
+            chart_def = spec.chart_defs.get(cell.name)
+            if chart_def is None:
+                continue
+
+            span = max(spans.get(cell.name, 1), 1)
+
+            if chart_def.dir == "horizontal":
+                labels_enabled = chart_def.label_position != "none"
+                label_width = 0
+                if labels_enabled:
+                    label_text = self._format_chart_label(chart_def, cell.index)
+                    if label_text:
+                        # Reserve label width + one-char visual gap.
+                        label_width = len(label_text) * label_char_emu + label_char_emu
+
+                plot_width = _CHART_PREF_PLOT_WIDTH if preferred else _CHART_MIN_PLOT_WIDTH
+                group_width = label_width + plot_width
+            else:
+                group_width = (
+                    _CHART_VERTICAL_PREF_SLOT_WIDTH if preferred else _CHART_VERTICAL_MIN_SLOT_WIDTH
+                )
+
+            per_col_width = max(group_width // span, 1)
+            max_col_width = max(max_col_width, per_col_width)
+
+        return max_col_width
+
+    def _single_span_col_superheader_widths(
+        self,
+        spec: TableSpec,
+        metrics: TextMetrics,
+        fonts: FontConfig,
+    ) -> dict[int, int]:
+        """Return required no-wrap widths for single-span col superheaders.
+
+        Keys are *grid* column indices (including row-header column when present).
+        Values exclude inter-column right padding.
+        """
+        if not spec.col_superheaders:
+            return {}
+
+        widths: dict[int, int] = {}
+        grid_col = 0
+        for csh in spec.col_superheaders:
+            span = max(int(csh.span), 1)
+            if span == 1:
+                required = 0
+                label = str(csh.label)
+                if label:
+                    required = max(
+                        required,
+                        int(
+                            metrics.text_width_no_wrap(
+                                label,
+                                fonts.header_font,
+                                fonts.header_size_pt,
+                            )
+                            * self._BOLD_FACTOR
+                        ),
+                    )
+                if csh.sub:
+                    required = max(
+                        required,
+                        metrics.text_width_no_wrap(
+                            csh.sub,
+                            fonts.header_font,
+                            fonts.header_size_pt,
+                        ),
+                    )
+                if required > 0:
+                    widths[grid_col] = max(widths.get(grid_col, 0), required)
+            grid_col += span
+
+        return widths
+
     def _max_widths(
         self,
         spec: TableSpec,
@@ -504,14 +721,23 @@ class ColumnSizer:
         maxes: list[int] = []
 
         if spec.has_row_header:
-            # Row header: use natural no-wrap width (usually short labels).
-            maxes.append(self._row_header_preferred_width(spec, metrics, fonts))
+            # Grouped row headers stay near their target-line minimum; flat
+            # row headers use natural no-wrap preferred width.
+            if spec.is_grouped:
+                maxes.append(
+                    self._row_header_min_width(spec, area_width, metrics, fonts, warnings=[])
+                )
+            else:
+                maxes.append(self._row_header_preferred_width(spec, metrics, fonts))
 
         body_default = _body_default(spec, fonts)
         icon_min = spec.icons.size_emu if spec.icons else 0
+        single_span_super = self._single_span_col_superheader_widths(spec, metrics, fonts)
+        col_offset = 1 if spec.has_row_header else 0
 
         for col_idx in range(spec.num_cols):
             is_icon = self._is_icon_column(spec, col_idx)
+            grid_col_idx = col_idx + col_offset
 
             header_w = 0
             if spec.has_col_header and spec.col_headers and col_idx < len(spec.col_headers):
@@ -528,6 +754,8 @@ class ColumnSizer:
                             hdr_sub, fonts.header_font, fonts.header_size_pt
                         ),
                     )
+
+            header_w = max(header_w, single_span_super.get(grid_col_idx, 0))
 
             body_w = 0
             for row in spec.cells or []:
@@ -550,16 +778,10 @@ class ColumnSizer:
                     )
                     body_w = max(body_w, w + margin)
 
-            # Chart-only columns: the chart fills whatever space is given.
-            # Use header width as the preferred size (not an equal share) so
-            # that text-only columns keep enough room.  The distribution step
-            # will expand chart columns with remaining slack.
-            is_chart = self._is_chart_column(spec, col_idx)
-            if is_chart and body_w == 0:
-                body_w = header_w  # 0 is fine — min_width guarantees a floor
+            chart_w = self._chart_width_for_column(spec, col_idx, fonts, preferred=True)
 
             floor = icon_min if is_icon else 1
-            raw = int(max(header_w, body_w, floor) * _MIN_WIDTH_SAFETY)
+            raw = int(max(header_w, body_w, chart_w, floor) * _MIN_WIDTH_SAFETY)
 
             # Cap body columns; leave icon columns uncapped (they're tiny).
             if not is_icon:
@@ -686,6 +908,19 @@ class RowSizer:
             )
             required_body.append(max(req, 1))
 
+        # Grouped tables: ensure each group has enough combined height for
+        # its row-superheader text (including optional `sub` lines).
+        if spec.is_grouped and spec.groups:
+            self._inflate_grouped_header_requirements(
+                spec,
+                required_body,
+                text_widths,
+                metrics,
+                fonts,
+                pad_top,
+                pad_bottom,
+            )
+
         # Distribute body_area proportionally to required heights
         total_req = sum(required_body) or 1
         min_h = int(TableDefaults.MIN_ROW_HEIGHT)
@@ -698,10 +933,15 @@ class RowSizer:
         # regardless of text content, so the rows must match).
         self._equalize_chart_rows(spec, body_heights)
 
-        # Fix rounding: adjust last row to consume exactly body_area
-        allocated = sum(body_heights)
-        if body_heights:
-            body_heights[-1] += body_area - allocated
+        # Reconcile rounding/min-floor drift without collapsing a single row.
+        # The previous "adjust last row" approach could crush the final row
+        # when min floors + chart equalization over-allocated total height.
+        self._rebalance_body_heights(body_heights, body_area, min_h)
+
+        # Re-apply equalization after rebalancing, then reconcile again so the
+        # final sum still exactly matches body_area.
+        self._equalize_chart_rows(spec, body_heights)
+        self._rebalance_body_heights(body_heights, body_area, min_h)
 
         heights.extend(body_heights)
 
@@ -859,6 +1099,146 @@ class RowSizer:
             remainder = combined - equal_h * len(valid)
             if remainder and valid:
                 body_heights[max(valid)] += remainder
+
+    @staticmethod
+    def _rebalance_body_heights(body_heights: list[int], target_total: int, min_h: int) -> None:
+        """Adjust body heights to exactly match ``target_total``.
+
+        Preserves a lower bound of ``min_h`` when possible, and distributes
+        adjustments across rows instead of dumping all drift into the last row.
+        """
+        if not body_heights:
+            return
+
+        n_rows = len(body_heights)
+        if target_total <= 0:
+            for i in range(n_rows):
+                body_heights[i] = 0
+            return
+
+        min_total = min_h * n_rows
+        if target_total < min_total:
+            # Not enough room to satisfy min height for every row.
+            # Fall back to an even split (keeps rows usable and avoids
+            # collapsing only the last row).
+            base = target_total // n_rows
+            for i in range(n_rows):
+                body_heights[i] = base
+            body_heights[-1] += target_total - base * n_rows
+            return
+
+        # Enforce minimum before balancing.
+        for i, h in enumerate(body_heights):
+            if h < min_h:
+                body_heights[i] = min_h
+
+        current_total = sum(body_heights)
+        if current_total == target_total:
+            return
+
+        if current_total < target_total:
+            extra = target_total - current_total
+            weights = [max(h, 1) for h in body_heights]
+            total_w = sum(weights) or 1
+            added = 0
+            for i, w in enumerate(weights[:-1]):
+                inc = int(extra * (w / total_w))
+                body_heights[i] += inc
+                added += inc
+            body_heights[-1] += extra - added
+            return
+
+        # current_total > target_total: shrink rows proportionally to slack above min_h.
+        overflow = current_total - target_total
+        slack = [max(h - min_h, 0) for h in body_heights]
+        total_slack = sum(slack)
+        if total_slack <= 0:
+            return
+
+        reduced = 0
+        for i, s in enumerate(slack):
+            if s <= 0:
+                continue
+            cut = min(s, int(overflow * (s / total_slack)))
+            if cut > 0:
+                body_heights[i] -= cut
+                reduced += cut
+
+        remainder = overflow - reduced
+        if remainder <= 0:
+            return
+
+        # Greedy final pass for integer remainder.
+        for i in range(n_rows - 1, -1, -1):
+            if remainder <= 0:
+                break
+            cap = max(body_heights[i] - min_h, 0)
+            if cap <= 0:
+                continue
+            take = min(cap, remainder)
+            body_heights[i] -= take
+            remainder -= take
+
+    @staticmethod
+    def _inflate_grouped_header_requirements(
+        spec: TableSpec,
+        required_body: list[int],
+        text_widths: list[int],
+        metrics: TextMetrics,
+        fonts: FontConfig,
+        pt: int,
+        pb: int,
+    ) -> None:
+        """Ensure each grouped superheader fits within its spanned rows."""
+        groups = spec.groups
+        if not groups:
+            return
+
+        sub_row = 0
+        for group in groups:
+            if group.num_rows <= 0:
+                continue
+            end_row = min(sub_row + group.num_rows, len(required_body))
+            if end_row <= sub_row:
+                break
+
+            group_w = text_widths[0] if text_widths else 0
+            if group.promoted and len(text_widths) > 1:
+                group_w += text_widths[1]
+
+            size_pt = fonts.effective_row_superheader_size_pt
+            default = Paragraph(
+                text="",
+                lvl=0,
+                font=fonts.header_font,
+                size_pt=size_pt,
+                color="tx1",
+                bold=True,
+            )
+
+            paragraphs = normalize_cell(group.header, default, parse_bullets=False)
+            req = cell_content_height(
+                paragraphs,
+                group_w,
+                metrics,
+                pt,
+                pb,
+                default.font or "Arial",
+                default.size_pt or 12,
+                use_line_breaks=True,
+            )
+
+            current = sum(required_body[sub_row:end_row])
+            if req > current:
+                deficit = req - current
+                span = end_row - sub_row
+                inc = deficit // span
+                rem = deficit - inc * span
+                for i in range(sub_row, end_row):
+                    required_body[i] += inc
+                required_body[end_row - 1] += rem
+
+            sub_row = end_row
 
     def _body_row_required(
         self,

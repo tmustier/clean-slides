@@ -11,9 +11,16 @@ import unittest
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
 from pptx import Presentation
+from pptx.util import Emu
 
-from clean_slides.chart_render import _python_fmt_to_excel_format
+from clean_slides.chart_render import (
+    ChartGroup,
+    _chart_def_to_spec,
+    _python_fmt_to_excel_format,
+    _waterfall_overlay_label_texts,
+)
 from clean_slides.cli import cmd_generate, cmd_validate
 from clean_slides.constants import Fonts, TableDefaults
 from clean_slides.sizing import ColumnSizer, FontConfig, RowSizer
@@ -171,15 +178,218 @@ class TestParseCharts(unittest.TestCase):
         cd = spec.chart_defs["ch"]
         assert cd.dir == "vertical"  # default
         assert cd.color is None
+        assert cd.colors is None
         assert cd.format == "{}"  # default pass-through format
         assert cd.scale_max is None
         assert cd.label_position is None
+
+    def test_chart_def_point_colors(self) -> None:
+        data: dict[str, object] = {
+            "table": {
+                "rows": 3,
+                "cols": 1,
+                "has_col_header": False,
+                "cells": [["wf-1"], ["wf-2"], ["wf-3"]],
+            },
+            "charts": {
+                "wf": {
+                    "type": "waterfall",
+                    "dir": "horizontal",
+                    "values": [954, 13, 1209],
+                    "totals": [1, 3],
+                    "color": "#4472C4",
+                    "total_color": "#0D193B",
+                    "colors": [None, "#4472C4", None],
+                }
+            },
+        }
+
+        spec = TableSpec.from_dict(data)
+        assert spec.chart_defs is not None
+        chart = spec.chart_defs["wf"]
+        assert chart.colors == [None, "#4472C4", None]
+
+    def test_chart_def_point_colors_must_match_values_length(self) -> None:
+        data: dict[str, object] = {
+            "table": {
+                "rows": 2,
+                "cols": 1,
+                "has_col_header": False,
+                "cells": [["ch-1"], ["ch-2"]],
+            },
+            "charts": {
+                "ch": {
+                    "values": [1, 2],
+                    "colors": ["#4472C4"],
+                }
+            },
+        }
+
+        with pytest.raises(ValueError, match="colors must have"):
+            TableSpec.from_dict(data)
+
+    def test_grouped_singleton_empty_header_promotes_first_body_label(self) -> None:
+        data: dict[str, object] = {
+            "table": {
+                "cols": 3,
+                "has_col_header": False,
+                "row_groups": [
+                    {
+                        "header": "",
+                        "rows": [["FY26E EBITDAaL", "wf-1"]],
+                    },
+                    {
+                        "header": "Drivers",
+                        "rows": [["CPI", "wf-2"]],
+                    },
+                ],
+            },
+            "charts": {
+                "wf": {
+                    "type": "waterfall",
+                    "dir": "horizontal",
+                    "values": [954, 13],
+                    "totals": [1],
+                }
+            },
+        }
+
+        spec = TableSpec.from_dict(data)
+        assert spec.groups is not None
+        assert spec.groups[0].header == "FY26E EBITDAaL"
+        assert spec.groups[0].promoted is True
+        assert spec.cells is not None
+        assert spec.cells[0][0] == ""
+
+    def test_grouped_singleton_empty_header_not_promoted_without_chart_ref(self) -> None:
+        data: dict[str, object] = {
+            "table": {
+                "cols": 3,
+                "has_col_header": False,
+                "row_groups": [
+                    {
+                        "header": "",
+                        "rows": [["Plain Label", "No chart"]],
+                    }
+                ],
+            }
+        }
+
+        spec = TableSpec.from_dict(data)
+        assert spec.groups is not None
+        assert spec.groups[0].header == ""
+        assert spec.groups[0].promoted is False
+        assert spec.cells is not None
+        assert spec.cells[0][0] == "Plain Label"
+
+    def test_row_group_header_string_newline_parenthesis_maps_to_sub(self) -> None:
+        data: dict[str, object] = {
+            "table": {
+                "cols": 3,
+                "has_col_header": False,
+                "row_groups": [
+                    {
+                        "header": "Impact of net site additions\n(at constant prices)",
+                        "rows": [["MSA", "wf-1"]],
+                    }
+                ],
+            },
+            "charts": {
+                "wf": {
+                    "type": "waterfall",
+                    "dir": "horizontal",
+                    "values": [13],
+                    "totals": [1],
+                }
+            },
+        }
+
+        spec = TableSpec.from_dict(data)
+        assert spec.groups is not None
+        header = spec.groups[0].header
+        assert isinstance(header, dict)
+        assert header.get("text") == "Impact of net site additions"
+        assert header.get("sub") == "(at constant prices)"
+
+    def test_promoted_header_string_newline_parenthesis_maps_to_sub(self) -> None:
+        data: dict[str, object] = {
+            "table": {
+                "cols": 3,
+                "has_col_header": False,
+                "row_groups": [
+                    {
+                        "header": "",
+                        "rows": [
+                            ["FY33E EBITDAaL at FY26 mgn.\n(i.e. impact of Revenue growth)", "wf-1"]
+                        ],
+                    }
+                ],
+            },
+            "charts": {
+                "wf": {
+                    "type": "waterfall",
+                    "dir": "horizontal",
+                    "values": [1166],
+                    "totals": [1],
+                }
+            },
+        }
+
+        spec = TableSpec.from_dict(data)
+        assert spec.groups is not None
+        assert spec.groups[0].promoted is True
+        header = spec.groups[0].header
+        assert isinstance(header, dict)
+        assert header.get("text") == "FY33E EBITDAaL at FY26 mgn."
+        assert header.get("sub") == "(i.e. impact of Revenue growth)"
 
 
 class TestChartFormatConversion(unittest.TestCase):
     def test_zero_decimal_format_preserved(self) -> None:
         excel = _python_fmt_to_excel_format("{:.0f}", [1.2, 2.8])
         assert excel == "0"
+
+
+class TestWaterfallSpecAndLabels(unittest.TestCase):
+    def test_waterfall_spec_uses_blank_categories_and_zero_based_totals(self) -> None:
+        chart = ChartDef(
+            name="wf",
+            type="waterfall",
+            dir="horizontal",
+            values=[954, 13, 1209],
+            totals=[1, 3],
+        )
+        group = ChartGroup(
+            chart_def=chart,
+            refs=[(0, 0, 1), (1, 0, 2), (2, 0, 3)],
+            min_row=0,
+            max_row=2,
+            min_col=0,
+            max_col=0,
+        )
+
+        spec = _chart_def_to_spec(group)
+        assert spec["categories"] == ["", "", ""]
+
+        wf = spec["waterfall"]
+        assert wf["total_categories"] == [0, 2]
+        assert wf["total_override"] is True
+        assert isinstance(wf["connector_inset"], Emu)
+        assert int(wf["connector_inset"]) == 3000
+        assert wf["connector_overlap"] == 0
+
+    def test_waterfall_overlay_label_texts_respect_python_format(self) -> None:
+        meta: dict[str, object] = {
+            "overlay": {
+                "categories": ["", "", ""],
+                "cumulative_totals": [954.0, 967.0, 1166.0],
+                "delta_values": [None, 13.0, None],
+                "total_categories": {0, 2},
+            }
+        }
+
+        labels = _waterfall_overlay_label_texts(meta, "{:,.0f}")
+        assert labels == ["954", "13", "1,166"]
 
 
 # ===================================================================
@@ -385,26 +595,25 @@ class TestSizingWithChartRefs(unittest.TestCase):
 
 
 def _charts_module_available() -> bool:
-    """Check if the external chart generator module can be resolved."""
-    import os
+    """Check if the bundled chart engine can be imported."""
+    import importlib
 
-    if os.getenv("CLEAN_SLIDES_CHARTS_PATH"):
-        return True
-    return Path.cwd().joinpath("generate_bar_chart.py").is_file()
+    try:
+        importlib.import_module("clean_slides.chart_generator")
+    except Exception:
+        return False
+    return True
 
 
 _skip_no_charts = unittest.skipUnless(
     _charts_module_available(),
-    "Chart generator module not available (set CLEAN_SLIDES_CHARTS_PATH)",
+    "Bundled chart engine module not available",
 )
 
 
 @_skip_no_charts
 class TestChartCellsIntegration(unittest.TestCase):
-    """Generate a slide with chart cells and verify shapes.
-
-    Requires the external chart generator module.
-    """
+    """Generate a slide with chart cells and verify shapes."""
 
     def test_generate_with_chart_cells(self) -> None:
         import tempfile

@@ -18,7 +18,7 @@ from .measure import (
     text_width_for_level,
     textbox_width,
 )
-from .spec import Box, ContentArea, TableLayout, TableSpec
+from .spec import Box, ChartRef, ContentArea, TableLayout, TableSpec
 from .text_metrics import TextMetrics
 
 # ---------------------------------------------------------------------------
@@ -194,8 +194,9 @@ class LayoutVerifier:
             right_pad: int = 0,
             use_line_breaks: bool = False,
         ) -> None:
-            # Skip empty cells — renderer doesn't create text boxes for them
-            if value == "" or value is None:
+            # Skip empty cells and chart refs — renderer doesn't create
+            # table text boxes for them.
+            if value == "" or value is None or isinstance(value, ChartRef):
                 return
             paragraphs = normalize_cell(value, default, parse_bullets=spec.parse_bullets)
             if not paragraphs:
@@ -292,19 +293,58 @@ class LayoutVerifier:
 
         # row headers
         if spec.has_row_header:
-            for ri in range(spec.num_rows):
-                raw_hdr = (
-                    spec.row_headers[ri] if spec.row_headers and ri < len(spec.row_headers) else ""
+            if spec.is_grouped and spec.groups:
+                sub_row = 0
+                has_promoted_group = any(g.promoted for g in spec.groups)
+                row_super_size_pt = body_size_pt if has_promoted_group else header_size_pt
+                row_super_def = Paragraph(
+                    text="",
+                    lvl=0,
+                    font=Fonts.HEADLINE,
+                    size_pt=row_super_size_pt,
+                    color=DefaultColors.ROW_SUPERHEADER,
+                    bold=True,
                 )
-                check(
-                    raw_hdr,
-                    self.layout.cells[ri + row_offset][0],
-                    header_def,
-                    "row_header",
-                    (ri, 0),
-                    right_pads[0] if right_pads else 0,
-                    use_line_breaks=True,
-                )
+                for gi, group in enumerate(spec.groups):
+                    grid_row = sub_row + row_offset
+                    x, y, w, _ = self.layout.cells[grid_row][0]
+                    if group.promoted and len(self.layout.col_widths) > 1:
+                        w += self.layout.col_widths[1]
+                    group_h = sum(self.layout.row_heights[grid_row : grid_row + group.num_rows])
+                    box: Box = (x, y, w, group_h)
+                    right_pad = 0
+                    if right_pads:
+                        right_pad = (
+                            right_pads[1]
+                            if group.promoted and len(right_pads) > 1
+                            else right_pads[0]
+                        )
+                    check(
+                        group.header,
+                        box,
+                        row_super_def,
+                        "row_superheader",
+                        (gi, 0),
+                        right_pad,
+                        use_line_breaks=True,
+                    )
+                    sub_row += group.num_rows
+            else:
+                for ri in range(spec.num_rows):
+                    raw_hdr = (
+                        spec.row_headers[ri]
+                        if spec.row_headers and ri < len(spec.row_headers)
+                        else ""
+                    )
+                    check(
+                        raw_hdr,
+                        self.layout.cells[ri + row_offset][0],
+                        header_def,
+                        "row_header",
+                        (ri, 0),
+                        right_pads[0] if right_pads else 0,
+                        use_line_breaks=True,
+                    )
 
         # body cells
         for ri in range(spec.num_rows):
