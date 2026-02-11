@@ -19,16 +19,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pptx.enum.shapes import MSO_SHAPE
-from pptx.enum.text import PP_ALIGN
 from pptx.oxml.xmlchemy import OxmlElement
 
-from .annotations import (
-    add_line_annotation,
-    add_shape_annotation,
-    add_text_label,
-)
-from .colors import resolve_color
+from .annotations import add_line_annotation, add_shape_annotation
 from .defaults import (
     DEFAULT_BAR_CATEGORY_LABEL_FONT_SIZE,
     DEFAULT_BAR_CATEGORY_LABEL_HEIGHT,
@@ -51,21 +44,12 @@ from .defaults import (
     DEFAULT_BAR_TOTAL_LABEL_OFFSET,
     DEFAULT_BAR_TOTAL_LABEL_WIDTH,
 )
-from .geometry import (
-    compute_category_geometry,
-    normalize_orientation,
-    value_to_x,
-    value_to_y,
-)
+from .geometry import compute_category_geometry, normalize_orientation
+from .overlay_bar_legend import add_bar_legend
 from .overlay_bar_segments import add_bar_segment_labels
-from .spec_utils import (
-    format_label,
-)
-from .text_style import normalize_alignment
-from .text_templates import load_txbody_template, resolve_txbody_template
-from .units import (
-    resolve_path,
-)
+from .overlay_bar_totals_categories import add_bar_category_labels, add_bar_total_labels
+from .text_templates import load_txbody_template
+from .units import resolve_path
 
 
 def add_bar_overlays(slide, chart_box: tuple, meta: dict) -> None:
@@ -184,212 +168,73 @@ def add_bar_overlays(slide, chart_box: tuple, meta: dict) -> None:
         templates=templates,
     )
 
-    # total labels (stacked)
     if show_totals:
-        for idx, total_value in enumerate(totals):
-            if total_value is None:
-                continue
-            text = format_label(total_value)
-            if text is None:
-                continue
-            label_width = total_widths[idx] if idx < len(total_widths) else total_width
-            offset_axis = total_label_offsets_x[idx] if idx < len(total_label_offsets_x) else 0
-            offset = (
-                total_label_offsets[idx] if idx < len(total_label_offsets) else total_label_offset
-            )
-            top_value = (
-                total_label_tops[idx]
-                if idx < len(total_label_tops) and total_label_tops[idx] is not None
-                else total_value
-            )
-            if orientation == "horizontal":
-                x_base = value_to_x(top_value, axis_min, axis_max, plot_left, plot_width)
-                if top_value is not None and top_value < 0:
-                    x = x_base - label_width - offset
-                else:
-                    x = x_base + offset
-                y = geometry["bar_centers"][idx] - total_height / 2 + offset_axis
-            else:
-                x = geometry["bar_centers"][idx] - label_width / 2 - offset_axis
-                y_base = value_to_y(top_value, axis_min, axis_max, plot_top, plot_height)
-                if top_value is not None and top_value < 0:
-                    y = y_base + offset
-                else:
-                    y = y_base - total_height - offset
-            label = add_text_label(
-                slide,
-                text,
-                x,
-                y,
-                label_width,
-                total_height,
-                font_size=total_font,
-                color=total_color,
-                margin_left=overlay.get("total_label_margin_left", 25400),
-                margin_right=overlay.get("total_label_margin_right", 25400),
-                margin_top=overlay.get("total_label_margin_top", 0),
-                margin_bottom=overlay.get("total_label_margin_bottom", 0),
-                vertical_anchor=overlay.get("total_label_anchor", "bottom"),
-                bw_mode=overlay.get("total_label_bw_mode", "gray"),
-                txbody_template=resolve_txbody_template(
-                    template_path,
-                    text,
-                    templates.get("total"),
-                ),
-            )
-            if label is not None and idx < len(total_widths):
-                total_widths[idx] = label.width
+        add_bar_total_labels(
+            slide,
+            overlay=overlay,
+            totals=totals,
+            total_label_tops=total_label_tops,
+            total_width=total_width,
+            total_widths=total_widths,
+            total_height=total_height,
+            total_font=total_font,
+            total_color=total_color,
+            total_label_offsets=total_label_offsets,
+            total_label_offset=total_label_offset,
+            total_label_offsets_x=total_label_offsets_x,
+            orientation=orientation,
+            axis_min=axis_min,
+            axis_max=axis_max,
+            plot_left=plot_left,
+            plot_top=plot_top,
+            plot_width=plot_width,
+            plot_height=plot_height,
+            geometry=geometry,
+            template_path=template_path,
+            templates=templates,
+        )
 
-    # category labels
-    if orientation == "horizontal":
-        for idx, label in enumerate(categories):
-            text = str(label)
-            label_width = category_widths[idx] if idx < len(category_widths) else category_width
-            label_height = category_heights[idx] if idx < len(category_heights) else category_height
-            offset = category_offsets[idx] if idx < len(category_offsets) else 0
-            x = plot_left + category_offset - label_width
-            y = geometry["bar_centers"][idx] - label_height / 2 + offset
-            add_text_label(
-                slide,
-                text,
-                x,
-                y,
-                label_width,
-                label_height,
-                align=PP_ALIGN.RIGHT,
-                font_size=category_font,
-                color=category_color,
-                margin_left=overlay.get("category_label_margin_left", 0),
-                margin_right=overlay.get("category_label_margin_right", 0),
-                margin_top=overlay.get("category_label_margin_top", 0),
-                margin_bottom=overlay.get("category_label_margin_bottom", 0),
-                vertical_anchor=overlay.get("category_label_anchor", "center"),
-                bw_mode=overlay.get("category_label_bw_mode", "auto"),
-                txbody_template=resolve_txbody_template(
-                    template_path,
-                    text,
-                    templates.get("category"),
-                ),
-            )
-    else:
-        category_y = plot_bottom + category_offset
-        for idx, label in enumerate(categories):
-            text = str(label)
-            label_width = category_widths[idx] if idx < len(category_widths) else category_width
-            label_height = category_heights[idx] if idx < len(category_heights) else category_height
-            offset = category_offsets[idx] if idx < len(category_offsets) else 0
-            x = geometry["bar_centers"][idx] - label_width / 2 - offset
-            add_text_label(
-                slide,
-                text,
-                x,
-                category_y,
-                label_width,
-                label_height,
-                font_size=category_font,
-                color=category_color,
-                margin_left=overlay.get("category_label_margin_left", 0),
-                margin_right=overlay.get("category_label_margin_right", 0),
-                margin_top=overlay.get("category_label_margin_top", 0),
-                margin_bottom=overlay.get("category_label_margin_bottom", 0),
-                vertical_anchor=overlay.get("category_label_anchor", "top"),
-                bw_mode=overlay.get("category_label_bw_mode", "auto"),
-                txbody_template=resolve_txbody_template(
-                    template_path,
-                    text,
-                    templates.get("category"),
-                ),
-            )
+    add_bar_category_labels(
+        slide,
+        overlay=overlay,
+        categories=categories,
+        orientation=orientation,
+        plot_left=plot_left,
+        plot_bottom=plot_bottom,
+        geometry=geometry,
+        category_width=category_width,
+        category_widths=category_widths,
+        category_height=category_height,
+        category_heights=category_heights,
+        category_offsets=category_offsets,
+        category_offset=category_offset,
+        category_font=category_font,
+        category_color=category_color,
+        template_path=template_path,
+        templates=templates,
+    )
 
-    # legend labels + color markers
     if show_legend and series_names:
-        legend_layout = overlay.get("legend_layout")
-        legend_align = normalize_alignment(overlay.get("legend_alignment"))
-        legend_show_markers = overlay.get("legend_show_markers", True)
-
-        if legend_layout == "left":
-            legend_left_offset = overlay.get("legend_left_offset", 0)
-            legend_top_offset = overlay.get("legend_top_offset", 0)
-            legend_step = overlay.get("legend_step", legend_height)
-            legend_x = chart_box[0] + legend_left_offset
-            legend_y = plot_bottom + legend_top_offset
-            if legend_align is None:
-                legend_align = PP_ALIGN.RIGHT
-
-            for idx, name in enumerate(series_names):
-                text = str(name)
-                y = legend_y + legend_step * idx
-                add_text_label(
-                    slide,
-                    text,
-                    legend_x,
-                    y,
-                    legend_width,
-                    legend_height,
-                    align=legend_align,
-                    font_size=legend_font,
-                    color=legend_color,
-                    margin_left=overlay.get("legend_label_margin_left", 0),
-                    margin_right=overlay.get("legend_label_margin_right", 0),
-                    margin_top=overlay.get("legend_label_margin_top", 0),
-                    margin_bottom=overlay.get("legend_label_margin_bottom", 0),
-                    vertical_anchor=overlay.get("legend_label_anchor", "center"),
-                    bw_mode=overlay.get("legend_label_bw_mode", "auto"),
-                    txbody_template=resolve_txbody_template(
-                        template_path,
-                        text,
-                        templates.get("legend"),
-                    ),
-                )
-        else:
-            legend_y = plot_bottom + legend_offset
-            if legend_align is None:
-                legend_align = PP_ALIGN.LEFT
-            for idx, name in enumerate(series_names):
-                text = str(name)
-                label_width = legend_width
-                x = geometry["plot_left"] + geometry["plot_width"] * (
-                    legend_left_ratio + legend_step_ratio * idx
-                )
-                add_text_label(
-                    slide,
-                    text,
-                    x,
-                    legend_y,
-                    label_width,
-                    legend_height,
-                    align=legend_align,
-                    font_size=legend_font,
-                    color=legend_color,
-                    margin_left=overlay.get("legend_label_margin_left", 0),
-                    margin_right=overlay.get("legend_label_margin_right", 0),
-                    margin_top=overlay.get("legend_label_margin_top", 0),
-                    margin_bottom=overlay.get("legend_label_margin_bottom", 0),
-                    vertical_anchor=overlay.get("legend_label_anchor", "center"),
-                    bw_mode=overlay.get("legend_label_bw_mode", "auto"),
-                    txbody_template=resolve_txbody_template(
-                        template_path,
-                        text,
-                        templates.get("legend"),
-                    ),
-                )
-
-                if legend_show_markers and idx < len(series_colors) and series_colors[idx]:
-                    marker_x = geometry["plot_left"] + geometry["plot_width"] * (
-                        marker_left_ratio + marker_step_ratio * idx
-                    )
-                    marker_y = legend_y + marker_y_offset
-                    shape = slide.shapes.add_shape(
-                        MSO_SHAPE.RECTANGLE,
-                        int(marker_x),
-                        int(marker_y),
-                        int(marker_width),
-                        int(marker_height),
-                    )
-                    shape.fill.solid()
-                    rgb, theme = resolve_color(series_colors[idx])
-                    if theme is not None:
-                        shape.fill.fore_color.theme_color = theme
-                    elif rgb is not None:
-                        shape.fill.fore_color.rgb = rgb
-                    shape.line.fill.background()
+        add_bar_legend(
+            slide,
+            overlay=overlay,
+            chart_box=chart_box,
+            plot_bottom=plot_bottom,
+            geometry=geometry,
+            series_names=series_names,
+            series_colors=series_colors,
+            legend_width=legend_width,
+            legend_height=legend_height,
+            legend_font=legend_font,
+            legend_color=legend_color,
+            legend_offset=legend_offset,
+            legend_left_ratio=legend_left_ratio,
+            legend_step_ratio=legend_step_ratio,
+            marker_left_ratio=marker_left_ratio,
+            marker_step_ratio=marker_step_ratio,
+            marker_width=marker_width,
+            marker_height=marker_height,
+            marker_y_offset=marker_y_offset,
+            template_path=template_path,
+            templates=templates,
+        )

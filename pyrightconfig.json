@@ -1,6 +1,5 @@
 {
   "include": ["clean_slides", "tests"],
-  "exclude": ["clean_slides/chart_generator.py"],
   "typeCheckingMode": "strict",
   "pythonVersion": "3.9",
   "venvPath": ".",
