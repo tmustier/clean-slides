@@ -1,0 +1,579 @@
+"""Generate command and helpers for YAML → PPTX table pipeline."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+from typing import Any, Protocol
+
+from pptx import Presentation
+from pptx.presentation import Presentation as PresentationObj
+from pptx.shapes.autoshape import Shape
+from pptx.shapes.base import BaseShape
+from pptx.slide import Slide, SlideLayout
+from pptx.util import Emu
+
+from .cli_common import find_layout, is_str_object_dict
+from .cli_project import (
+    PROJECT_DIR_NAME,
+    apply_config,
+    discover_project_dir,
+    discover_template,
+    expand_inputs,
+)
+from .constants import EMU_PER_INCH, Fonts, FontSizes, Layout, TableDefaults
+from .metadata import fill_slide_metadata
+from .placeholder import fill_placeholders
+from .renderer import TableRenderer
+from .solver import ConstraintSolver
+from .spec import ContentArea, TableLayout, TableSpec
+from .spec_pipeline import YamlDict, load_yaml, parse_spec, validate_spec
+from .template_config import TEMPLATE_CONFIG
+from .text_metrics import EMU_PER_PT, TextMetrics
+
+
+class InputArgs(Protocol):
+    input: list[str]
+
+
+class GenerateArgs(InputArgs, Protocol):
+    output: str | None
+    template: str | None
+    config: str | None
+    slide_index: int | None
+    keep_existing: bool
+    detail: bool
+
+
+def _content_area_from_layout(slide_layout: SlideLayout) -> ContentArea | None:
+    """Extract the primary content area from a slide layout.
+
+    Finds the best OBJECT / BODY placeholder to use as the table content
+    area.  When multiple content placeholders exist (e.g. "Two Content"),
+    picks the largest; ties are broken by topmost then leftmost position
+    so the primary (upper-left) area wins consistently.
+
+    Returns ``None`` when no suitable placeholder exists.
+    """
+    # Placeholder type names that represent content areas (OBJECT, BODY,
+    # TABLE, CHART, etc.).  We exclude TITLE, SUBTITLE, DATE, FOOTER,
+    # SLIDE_NUMBER, HEADER.
+    _SKIP_TYPES = {"TITLE", "CENTER_TITLE", "SUBTITLE", "DATE", "FOOTER", "SLIDE_NUMBER", "HEADER"}
+
+    footer_y = int(Layout.FOOTER_LINE_Y)
+
+    # Collect candidate content placeholders.
+    candidates: list[tuple[int, int, int, ContentArea]] = []
+    for ph in slide_layout.placeholders:
+        pf = ph.placeholder_format
+        type_name = str(pf.type).split("(")[0].strip() if pf.type is not None else ""
+        if type_name in _SKIP_TYPES:
+            continue
+        ph_area = int(ph.width) * int(ph.height)
+        ph_bottom = int(ph.top) + int(ph.height)
+        area = ContentArea(
+            x=int(ph.left),
+            y=int(ph.top),
+            width=int(ph.width),
+            height=int(min(ph_bottom, footer_y) - int(ph.top)),
+        )
+        candidates.append((ph_area, int(ph.top), int(ph.left), area))
+
+    if not candidates:
+        return None
+
+    # Pick the primary content area: topmost then leftmost among the
+    # largest placeholders (within 10% of the max area).
+    max_area = max(c[0] for c in candidates)
+    threshold = int(max_area * 0.9)
+    large = [(top, left, ca) for (a, top, left, ca) in candidates if a >= threshold]
+    large.sort()  # topmost, then leftmost
+    return large[0][2]
+
+
+def _sidebar_content_area(slide_layout: SlideLayout) -> ContentArea | None:
+    """Extract the secondary (sidebar) content area from a split slide layout.
+
+    Returns the ContentArea for the right-side placeholder in layouts like
+    2/3, 3/4, 1/2. Returns None when the layout has no secondary area.
+    """
+    content_y_threshold = 1600000
+    footer_y = int(Layout.FOOTER_LINE_Y)
+
+    # Collect (left, top, width) for content-region placeholders
+    candidates: list[tuple[int, int, int]] = []
+    for ph in slide_layout.placeholders:  # type: ignore[union-attr]
+        top: int = int(ph.top)  # type: ignore[arg-type]
+        if top < content_y_threshold:
+            continue
+        candidates.append((int(ph.left), top, int(ph.width)))  # type: ignore[arg-type]
+
+    if len(candidates) < 2:
+        return None
+
+    candidates.sort()
+    x, y, w = candidates[1]
+    return ContentArea(x=x, y=y, width=w, height=int(footer_y - y))
+
+
+def _get_text_limit(key: str, default: int) -> int:
+    try:
+        limits = TEMPLATE_CONFIG.section("text_limits")
+    except KeyError:
+        return default
+
+    raw = limits.get(key)
+    if raw is None:
+        return default
+
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+_SIDEBAR_MIN_PT = 8  # never shrink below this
+
+
+def _warn_sidebar_overflow(
+    paragraphs: list[Any],
+    area: ContentArea,
+    metrics: TextMetrics,
+) -> None:
+    """Warn when sidebar content exceeds available height."""
+    total = _sidebar_height(paragraphs, area, metrics)
+    if total > area.height:
+        overflow_in = (total - area.height) / EMU_PER_INCH
+        print(
+            f"  WARNING: sidebar content overflows by ~{overflow_in:.1f}in. "
+            f"Shorten text, reduce paragraphs, or set sidebar_shrink: true.",
+            file=sys.stderr,
+        )
+
+
+def _sidebar_height(
+    paragraphs: list[Any],
+    area: ContentArea,
+    metrics: TextMetrics,
+) -> int:
+    """Estimate total sidebar height in EMU."""
+    PARA_GAP_EMU = int(4 * EMU_PER_PT)
+    total = 0
+    for para in paragraphs:
+        font: str = str(para.font or Fonts.BODY)
+        size_pt: int = int(para.size_pt or FontSizes.DEFAULT)
+        total += metrics.text_height(str(para.text), area.width, font, size_pt) + PARA_GAP_EMU
+    return total
+
+
+def _shrink_sidebar_to_fit(
+    paragraphs: list[Any],
+    area: ContentArea,
+    metrics: TextMetrics,
+) -> None:
+    """Proportionally shrink sidebar font sizes until content fits the area.
+
+    Modifies paragraph objects in-place. Warns if content still overflows
+    at the minimum font size.
+    """
+    total = _sidebar_height(paragraphs, area, metrics)
+    if total <= area.height:
+        return  # fits already
+
+    # Compute scale factor and apply proportionally
+    scale = area.height / total
+    original_sizes: list[int] = []
+    for para in paragraphs:
+        orig = int(para.size_pt or FontSizes.DEFAULT)
+        original_sizes.append(orig)
+        shrunk = max(_SIDEBAR_MIN_PT, int(orig * scale))
+        para.size_pt = shrunk
+
+    # Re-check (rounding / min clamp may still overflow)
+    total = _sidebar_height(paragraphs, area, metrics)
+    if total > area.height:
+        overflow_in = (total - area.height) / EMU_PER_INCH
+        print(
+            f"  WARNING: sidebar content still overflows by ~{overflow_in:.1f}in after "
+            f"shrinking fonts (min {_SIDEBAR_MIN_PT}pt). Shorten text or reduce paragraphs.",
+            file=sys.stderr,
+        )
+    else:
+        reduced = [
+            f"{orig}→{int(para.size_pt or orig)}pt"
+            for para, orig in zip(paragraphs, original_sizes)
+            if int(para.size_pt or orig) != orig
+        ]
+        if reduced:
+            print(
+                f"  sidebar: shrunk fonts to fit ({reduced[0].split('→')[1].rstrip('pt')}pt body)"
+            )
+
+
+def warn_placeholder_text_limits(slide: Slide, shape: Shape) -> None:
+    """Warn (to stderr) when placeholder text likely wraps beyond configured max lines."""
+    if not shape.is_placeholder:
+        return
+
+    ph_idx = shape.placeholder_format.idx
+    if ph_idx not in {0, 1}:
+        return
+
+    text = str(shape.text_frame.text or "").strip()
+    if not text:
+        return
+
+    is_title_slide = "title" in (slide.slide_layout.name or "").lower()
+
+    if ph_idx == 0:
+        max_lines = _get_text_limit("title_max_lines", 2)
+        font = Fonts.HEADLINE
+        size_pt = int(FontSizes.TITLE)
+        label = "title"
+    else:
+        if is_title_slide:
+            max_lines = _get_text_limit("title_slide_subtitle_max_lines", 1)
+        else:
+            max_lines = _get_text_limit("subtitle_max_lines", 1)
+        font = Fonts.HEADLINE
+        size_pt = int(FontSizes.SUBTITLE)
+        label = "subtitle"
+
+    width_emu = int(shape.width)
+    metrics = TextMetrics()
+    needed = metrics.lines_needed(text, width_emu, font, size_pt)
+
+    if needed > max_lines:
+        print(
+            f"Warning: {label} text likely wraps to ~{needed} lines (max {max_lines}) in placeholder '{shape.name}'. "
+            "Consider shortening.",
+            file=sys.stderr,
+        )
+
+
+def _clear_content_area(slide: Slide, area: ContentArea) -> None:
+    for shape in list(slide.shapes):
+        if _boxes_intersect(
+            (int(shape.left), int(shape.top), int(shape.width), int(shape.height)),
+            (area.x, area.y, area.width, area.height),
+        ):
+            slide.shapes.element.remove(shape.element)
+
+
+_Box = tuple[int, int, int, int]
+
+
+def _boxes_intersect(box_a: _Box, box_b: _Box) -> bool:
+    ax, ay, aw, ah = box_a
+    bx, by, bw, bh = box_b
+    return ax < bx + bw and ax + aw > bx and ay < by + bh and ay + ah > by
+
+
+def _infer_layout_from_slide(slide: Slide) -> str:
+    for shape in slide.shapes:
+        if shape.top < Layout.CONTENT_START_Y:
+            return "content"
+    return "default"
+
+
+def _delete_all_slides(prs: PresentationObj) -> None:
+    """Remove all existing slides from a presentation."""
+    # Must iterate in reverse to avoid index shifting
+    # Access internal _sldIdLst to properly delete slides
+    slides = prs.slides
+    for i in range(len(slides) - 1, -1, -1):
+        rId: str = slides._sldIdLst[i].rId  # type: ignore[union-attr]
+        prs.part.drop_rel(rId)  # type: ignore[union-attr]
+        del slides._sldIdLst[i]  # type: ignore[union-attr]
+
+
+def _clear_body_placeholders(slide: Slide) -> None:
+    """Remove unfilled body/content placeholders from a slide."""
+    # Only keep these specific placeholder types (by idx):
+    # 0 = title, 1 = subtitle
+    # Tracker placeholder is identified by name, not idx (idx varies by layout)
+    KEEP_PLACEHOLDER_INDICES = {0, 1}
+
+    shapes_to_remove: list[BaseShape] = []
+    for shape in slide.shapes:
+        if not shape.is_placeholder:
+            continue
+        ph_idx = shape.placeholder_format.idx
+
+        # Always keep title and subtitle
+        if ph_idx in KEEP_PLACEHOLDER_INDICES:
+            continue
+
+        # Keep tracker placeholder (identified by name pattern)
+        name_lower = shape.name.lower()
+        if "tracker" in name_lower or "on-page" in name_lower:
+            continue
+
+        # Check if placeholder has meaningful content
+        if hasattr(shape, "text_frame"):
+            text: str = str(shape.text_frame.text).strip()  # type: ignore[union-attr]
+            # Keep if it has real content (not empty, not placeholder prompts)
+            if text and "click to" not in text.lower() and "master text" not in text.lower():
+                continue
+
+        # Remove this placeholder
+        shapes_to_remove.append(shape)
+
+    # Remove shapes by deleting their XML elements
+    for shape in shapes_to_remove:
+        sp = shape.element
+        parent = sp.getparent()
+        if parent is not None:
+            parent.remove(sp)
+
+
+def _hint_init() -> None:
+    """Print a one-time hint about `pptx init` when no project config exists."""
+    proj = discover_project_dir()
+    if proj is None:
+        print(
+            "Hint: run `pptx init` to set up a project template and config "
+            f"in {PROJECT_DIR_NAME}/",
+            file=sys.stderr,
+        )
+
+
+def _resolve_generate_template_path(template_path: str | None) -> str | None:
+    if template_path is not None:
+        return template_path
+
+    discovered_tpl = discover_template()
+    if discovered_tpl is not None:
+        return str(discovered_tpl)
+
+    return None
+
+
+def _init_generate_presentation(template_path: str | None) -> PresentationObj:
+    if template_path:
+        prs = Presentation(template_path)
+        # Remove template's content slides - keep only layouts/masters
+        _delete_all_slides(prs)
+        return prs
+
+    _hint_init()
+    prs = Presentation()
+    prs.slide_width = Emu(int(Layout.SLIDE_WIDTH))
+    prs.slide_height = Emu(int(Layout.SLIDE_HEIGHT))
+    return prs
+
+
+def _load_validated_generate_data(path: Path) -> tuple[YamlDict, bool] | None:
+    data = load_yaml(str(path))
+    errors, warnings = validate_spec(data)
+    if errors:
+        print(f"{path}:\n  - " + "\n  - ".join(errors), file=sys.stderr)
+        return None
+    if warnings:
+        print(f"{path}:\n  - " + "\n  - ".join(warnings))
+
+    has_table = is_str_object_dict(data.get("table")) and bool(data.get("table"))
+    return data, has_table
+
+
+def _resolve_generate_slide(
+    prs: PresentationObj,
+    data: YamlDict,
+    slide_index: int | None,
+) -> tuple[Slide, SlideLayout | None, str | None] | None:
+    layout_override: str | None = None
+
+    if slide_index is not None:
+        if slide_index < 0 or slide_index >= len(prs.slides):
+            print("slide_index out of range", file=sys.stderr)
+            return None
+
+        slide = prs.slides[slide_index]
+        if "content_layout" not in data and "layout" not in data:
+            layout_override = _infer_layout_from_slide(slide)
+
+        return slide, None, layout_override
+
+    slide_layout_name = str(data.get("slide_layout") or "Default")
+    slide_layout_obj = find_layout(prs, slide_layout_name, fallback=True)
+    slide = prs.slides.add_slide(slide_layout_obj)
+    return slide, slide_layout_obj, None
+
+
+def _render_chart_cells_for_spec(
+    input_path: Path,
+    slide: Slide,
+    spec: TableSpec,
+    layout: TableLayout,
+    area: ContentArea,
+) -> None:
+    if not spec.chart_defs:
+        return
+
+    from .chart_render import render_chart_cells
+    from .charts import load_charts_module, resolve_charts_module_path
+
+    charts_module_path = resolve_charts_module_path(input_path, module_path=None)
+    charts_mod = load_charts_module(charts_module_path)
+    body_pt = layout.body_font_size // 100
+    render_chart_cells(
+        slide,
+        spec,
+        layout,
+        area,
+        charts_mod,
+        label_font_size_pt=body_pt,
+    )
+
+
+def _render_sidebar_content(
+    data: YamlDict,
+    slide_layout_obj: SlideLayout | None,
+    renderer: TableRenderer,
+    metrics: TextMetrics,
+) -> None:
+    sidebar_raw = data.get("sidebar")
+    if sidebar_raw is None or slide_layout_obj is None:
+        return
+
+    sidebar_area = _sidebar_content_area(slide_layout_obj)
+    if sidebar_area is None:
+        print("  WARNING: sidebar content specified but layout has no secondary content area")
+        return
+
+    from .content import Paragraph, normalize_cell
+
+    default_para = Paragraph(text="", lvl=0)
+    sidebar_paras = normalize_cell(sidebar_raw, default_para, parse_bullets=True)
+    if not sidebar_paras:
+        return
+
+    if data.get("sidebar_shrink"):
+        _shrink_sidebar_to_fit(sidebar_paras, sidebar_area, metrics)
+    else:
+        _warn_sidebar_overflow(sidebar_paras, sidebar_area, metrics)
+
+    renderer.render_sidebar(sidebar_paras, sidebar_area)
+
+
+def _render_table_for_input(
+    path: Path,
+    slide: Slide,
+    slide_layout_obj: SlideLayout | None,
+    data: YamlDict,
+    layout_override: str | None,
+    solver: ConstraintSolver,
+    metrics: TextMetrics,
+    *,
+    detail: bool,
+    target_slide_index: int | None,
+    keep_existing: bool,
+) -> None:
+    spec, area, options, placeholders = parse_spec(data, layout_override=layout_override)
+    if placeholders:
+        spec = fill_placeholders(spec)
+
+    # Derive content area from the layout's primary content placeholder
+    # unless the YAML explicitly overrides via content_area / content_layout.
+    if slide_layout_obj is not None and "content_area" not in data:
+        layout_area = _content_area_from_layout(slide_layout_obj)
+        if layout_area is not None:
+            area = layout_area
+
+    if target_slide_index is not None and not keep_existing:
+        _clear_content_area(slide, area)
+
+    layout, report = solver.solve(spec, area, options)
+    print(f"{path}: {report.to_text(detail=detail)}")
+
+    sp_tree = slide.shapes.element
+
+    shape_id: int = TableDefaults.SHAPE_ID_START
+
+    def next_shape_id() -> int:
+        nonlocal shape_id
+        shape_id += 1
+        return shape_id
+
+    renderer = TableRenderer(sp_tree, next_shape_id, slide_part=slide.part)
+    renderer.render(spec, layout, area)
+
+    _render_chart_cells_for_spec(path, slide, spec, layout, area)
+    _render_sidebar_content(data, slide_layout_obj, renderer, metrics)
+
+
+def _finalize_generated_slide(slide: Slide, data: YamlDict) -> None:
+    fill_slide_metadata(slide, data)
+
+    # Agent-friendly: warn when title/subtitle likely wrap beyond configured limits.
+    for shape in slide.shapes:
+        if isinstance(shape, Shape) and shape.has_text_frame:
+            warn_placeholder_text_limits(slide, shape)
+
+    _clear_body_placeholders(slide)
+
+
+def _process_generate_input(
+    path: Path,
+    prs: PresentationObj,
+    args: GenerateArgs,
+    solver: ConstraintSolver,
+    metrics: TextMetrics,
+) -> bool:
+    loaded = _load_validated_generate_data(path)
+    if loaded is None:
+        return False
+
+    data, has_table = loaded
+
+    resolved = _resolve_generate_slide(prs, data, args.slide_index)
+    if resolved is None:
+        return False
+
+    slide, slide_layout_obj, layout_override = resolved
+
+    if has_table:
+        _render_table_for_input(
+            path,
+            slide,
+            slide_layout_obj,
+            data,
+            layout_override,
+            solver,
+            metrics,
+            detail=args.detail,
+            target_slide_index=args.slide_index,
+            keep_existing=args.keep_existing,
+        )
+    else:
+        print(f"{path}: metadata-only slide (no table)")
+
+    _finalize_generated_slide(slide, data)
+    return True
+
+
+def cmd_generate(args: GenerateArgs) -> int:
+    """Generate PPTX for text-only tables."""
+    apply_config(args.config)
+
+    input_files = expand_inputs(args.input)
+    if not input_files:
+        print("No input files found", file=sys.stderr)
+        return 1
+
+    template_path = _resolve_generate_template_path(args.template)
+    prs = _init_generate_presentation(template_path)
+
+    metrics = TextMetrics()
+    solver = ConstraintSolver(metrics)
+
+    for path in input_files:
+        ok = _process_generate_input(path, prs, args, solver, metrics)
+        if not ok:
+            return 1
+
+    output_path = args.output or "output.pptx"
+    prs.save(output_path)
+    print(f"Saved: {output_path}")
+
+    return 0
