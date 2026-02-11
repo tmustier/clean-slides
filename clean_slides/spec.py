@@ -36,9 +36,10 @@ _CHART_REF_RE = re.compile(r"^([a-zA-Z_][a-zA-Z0-9_]*)-(\d+)$")
 
 @dataclass
 class ChartDef:
-    """Definition of a bar chart that can be embedded in table cells."""
+    """Definition of a chart that can be embedded in table cells."""
 
     name: str
+    type: str  # "bar" | "waterfall"
     dir: str  # "horizontal" | "vertical"
     values: list[float]
     format: str = "{}"
@@ -48,8 +49,18 @@ class ChartDef:
     scale_min: float | None = None  # override automatic axis minimum
     scale_group: str | None = None  # charts in the same group share axis scale
 
+    # Waterfall-specific fields (ignored for type=bar)
+    totals: list[int] | None = None  # 1-based indices that are total bars
+    decreases: list[int] | None = None  # 1-based indices that are decrease bars
+    total_color: str | None = None  # color for total bars
+    connector: bool = True  # show connector lines between bars
+
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> ChartDef:
+        raw_type = str(data.get("type", "bar"))
+        if raw_type not in ("bar", "waterfall"):
+            raise ValueError(f"Chart '{name}': type must be 'bar' or 'waterfall', got '{raw_type}'")
+
         raw_dir = str(data.get("dir", "vertical"))
         if raw_dir not in ("horizontal", "vertical"):
             raise ValueError(f"Chart '{name}': dir must be 'horizontal' or 'vertical', got '{raw_dir}'")
@@ -76,8 +87,25 @@ class ChartDef:
         scale_group_raw = data.get("scale_group")
         scale_group = str(scale_group_raw) if scale_group_raw is not None else None
 
+        # Waterfall fields
+        totals: list[int] | None = None
+        decreases: list[int] | None = None
+        total_color: str | None = None
+        connector = True
+        if raw_type == "waterfall":
+            raw_totals: object = data.get("totals")
+            if _is_list(raw_totals):
+                totals = [int(x) for x in raw_totals]
+            raw_decreases: object = data.get("decreases")
+            if _is_list(raw_decreases):
+                decreases = [int(x) for x in raw_decreases]
+            tc_raw = data.get("total_color")
+            total_color = str(tc_raw) if tc_raw is not None else None
+            connector = bool(data.get("connector", True))
+
         return cls(
             name=name,
+            type=raw_type,
             dir=raw_dir,
             values=values,
             format=fmt,
@@ -86,6 +114,10 @@ class ChartDef:
             scale_max=scale_max,
             scale_min=scale_min,
             scale_group=scale_group,
+            totals=totals,
+            decreases=decreases,
+            total_color=total_color,
+            connector=connector,
         )
 
 

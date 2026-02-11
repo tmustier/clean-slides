@@ -334,7 +334,7 @@ class TestSizingWithChartRefs(unittest.TestCase):
                 ["More text", ChartRef(name="rev", index=2)],
             ],
             chart_defs={
-                "rev": ChartDef(name="rev", dir="vertical", values=[10, 20]),
+                "rev": ChartDef(name="rev", type="bar", dir="vertical", values=[10, 20]),
             },
         )
         metrics = TextMetrics()
@@ -357,7 +357,7 @@ class TestSizingWithChartRefs(unittest.TestCase):
                 ["More text", ChartRef(name="rev", index=2)],
             ],
             chart_defs={
-                "rev": ChartDef(name="rev", dir="vertical", values=[10, 20]),
+                "rev": ChartDef(name="rev", type="bar", dir="vertical", values=[10, 20]),
             },
         )
         metrics = TextMetrics()

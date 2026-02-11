@@ -155,18 +155,28 @@ def _vertical_plot_layout(chart_height_emu: int, label_font_size_pt: int, has_la
     return {"x": 0.0, "y": round(y_frac, 3), "w": 1.0, "h": round(1.0 - y_frac, 3)}
 
 
-def _chart_def_to_spec(group: ChartGroup, label_font_size: int = 8) -> dict[str, Any]:
-    """Convert a ChartDef + group refs into a JSON spec dict for build_bar_payload."""
-    chart_def = group.chart_def
-
-    # Sort refs by index to get values in bar order
+def _sorted_values(group: ChartGroup) -> list[float]:
+    """Return chart values in bar order (sorted by ref index)."""
     sorted_refs = sorted(group.refs, key=lambda r: r[2])
-    values = [chart_def.values[ref[2] - 1] for ref in sorted_refs]
+    return [group.chart_def.values[ref[2] - 1] for ref in sorted_refs]
 
-    # Categories are just numbered placeholders — axes are hidden
+
+def _chart_def_to_spec(group: ChartGroup, label_font_size: int = 8) -> dict[str, Any]:
+    """Convert a ChartDef + group refs into a JSON spec dict.
+
+    Dispatches to bar or waterfall spec builder based on chart type.
+    """
+    if group.chart_def.type == "waterfall":
+        return _waterfall_chart_spec(group, label_font_size)
+    return _bar_chart_spec(group, label_font_size)
+
+
+def _bar_chart_spec(group: ChartGroup, label_font_size: int = 8) -> dict[str, Any]:
+    """Build a JSON spec dict for build_bar_payload (clustered bar chart)."""
+    chart_def = group.chart_def
+    values = _sorted_values(group)
     categories = [str(i + 1) for i in range(len(values))]
 
-    # Build a single-series spec
     series_entry: dict[str, Any] = {
         "name": "Values",
         "values": values,
@@ -214,6 +224,71 @@ def _chart_def_to_spec(group: ChartGroup, label_font_size: int = 8) -> dict[str,
         spec["bar"]["axis_max"] = chart_def.scale_max
     if chart_def.scale_min is not None:
         spec["bar"]["axis_min"] = chart_def.scale_min
+
+    return spec
+
+
+def _waterfall_chart_spec(group: ChartGroup, label_font_size: int = 8) -> dict[str, Any]:
+    """Build a JSON spec dict for build_waterfall_payload."""
+    chart_def = group.chart_def
+    values = _sorted_values(group)
+    categories = [str(i + 1) for i in range(len(values))]
+
+    series_entry: dict[str, Any] = {
+        "name": "Values",
+        "values": values,
+    }
+    if chart_def.color:
+        series_entry["color"] = chart_def.color
+
+    # Totals: convert 1-based indices to 0-based category names
+    total_categories: list[str] = []
+    if chart_def.totals:
+        total_categories = [str(i) for i in chart_def.totals]
+
+    # Decreases: convert 1-based indices to 0-based category names
+    decrease_categories: list[str] = []
+    if chart_def.decreases:
+        decrease_categories = [str(i) for i in chart_def.decreases]
+
+    # Data label format
+    fmt = chart_def.format
+    excel_fmt: str | None = None
+    if fmt and fmt != "{}":
+        excel_fmt = _python_fmt_to_excel_format(fmt, values)
+
+    label_pos = chart_def.label_position
+
+    wf_config: dict[str, Any] = {
+        "orientation": chart_def.dir,
+        "total_categories": total_categories,
+        "decrease_categories": decrease_categories,
+        "gap_width": _CELL_CHART_GAP_WIDTH,
+        "overlap": 100,
+        "plot_layout": {},  # computed dynamically in render_chart_cells
+        "axis_line_color": "none",  # hide category axis line in cells
+    }
+
+    if chart_def.total_color:
+        wf_config["total_color"] = chart_def.total_color
+
+    if not chart_def.connector:
+        wf_config["connector_style"] = "none"
+    else:
+        wf_config["connector_style"] = "gap"
+
+    if excel_fmt:
+        wf_config["data_label_format"] = excel_fmt
+
+    spec: dict[str, Any] = {
+        "type": "waterfall",
+        "categories": categories,
+        "series": [series_entry],
+        "show_data_labels": label_pos != "none",
+        "show_legend": False,
+        "orientation": chart_def.dir,
+        "waterfall": wf_config,
+    }
 
     return spec
 
@@ -487,62 +562,126 @@ def render_chart_cells(
         w = max(w - 2 * pad, 1)
         h = max(h - 2 * pad, 1)
 
-        # Convert ChartDef → JSON spec
-        chart_spec = _chart_def_to_spec(group, label_font_size=label_font_size_pt)
-
-        # Compute direction-aware plot layout based on actual chart
-        # dimensions and label font size.
-        has_labels = chart_spec.get("show_data_labels", False)
-        if group.chart_def.dir == "horizontal":
-            plot_layout = _horizontal_plot_layout(
-                w, label_font_size_pt, has_labels,
-                group.chart_def.values, group.chart_def.format,
+        if group.chart_def.type == "waterfall":
+            _render_waterfall_group(
+                slide, group, charts_module,
+                x, y, w, h, label_font_size_pt,
             )
         else:
-            plot_layout = _vertical_plot_layout(h, label_font_size_pt, has_labels)
-        chart_spec["bar"]["plot_layout"] = plot_layout
+            _render_bar_group(
+                slide, group, charts_module,
+                x, y, w, h, label_font_size_pt,
+            )
 
-        # Build chart payload using the external generator
-        chart_type, chart_data, style = charts_module.build_bar_payload(chart_spec)
 
-        # Add chart shape to the slide at the computed position
-        chart_frame = slide.shapes.add_chart(
-            chart_type, Emu(x), Emu(y), Emu(w), Emu(h), chart_data
+def _render_bar_group(
+    slide: Slide,
+    group: ChartGroup,
+    charts_module: ModuleType,
+    x: int, y: int, w: int, h: int,
+    label_font_size_pt: int,
+) -> None:
+    """Render a clustered bar chart group."""
+    chart_spec = _chart_def_to_spec(group, label_font_size=label_font_size_pt)
+
+    # Compute direction-aware plot layout
+    has_labels = chart_spec.get("show_data_labels", False)
+    if group.chart_def.dir == "horizontal":
+        plot_layout = _horizontal_plot_layout(
+            w, label_font_size_pt, has_labels,
+            group.chart_def.values, group.chart_def.format,
         )
-        chart = chart_frame.chart
+    else:
+        plot_layout = _vertical_plot_layout(h, label_font_size_pt, has_labels)
+    chart_spec["bar"]["plot_layout"] = plot_layout
 
-        # Hide legend and auto-title (series name watermark)
-        chart.has_legend = False
-        _delete_auto_title(chart)
+    chart_type, chart_data, style = charts_module.build_bar_payload(chart_spec)
 
-        # Apply series colors
-        charts_module.apply_series_colors(chart, style.get("series_colors", []))
+    chart_frame = slide.shapes.add_chart(
+        chart_type, Emu(x), Emu(y), Emu(w), Emu(h), chart_data
+    )
+    chart = chart_frame.chart
 
-        # Apply bar chart styling (axes, gridlines, plot layout, gap width)
-        if style.get("bar"):
-            charts_module.apply_bar_chart_style(chart, style["bar"])
+    chart.has_legend = False
+    _delete_auto_title(chart)
 
-        # Apply data labels if configured
-        if chart_spec.get("show_data_labels", False):
-            data_cfg = chart_spec.get("data_labels") or {}
-            plot = chart.plots[0]
-            plot.has_data_labels = True
-            charts_module.apply_data_label_style(plot.data_labels, data_cfg)
-            _set_label_nowrap(chart)
+    charts_module.apply_series_colors(chart, style.get("series_colors", []))
 
-            # Horizontal charts: position labels to the right of each bar
-            # using ctr + per-label manual x-offsets (like the reference).
-            if group.chart_def.dir == "horizontal":
-                axis_max = chart_spec["bar"].get("axis_max", max(group.chart_def.values))
-                dl_cfg: dict[str, object] = chart_spec.get("data_labels") or {}
-                excel_fmt = str(dl_cfg.get("format", "General"))
-                _set_horizontal_label_offsets(
-                    chart,
-                    group.chart_def.values,
-                    axis_max,
-                    plot_layout["w"],
-                    chart_width_emu=w,
-                    num_format=excel_fmt,
-                    label_format=group.chart_def.format,
-                    font_size_pt=label_font_size_pt,
-                )
+    if style.get("bar"):
+        charts_module.apply_bar_chart_style(chart, style["bar"])
+
+    if chart_spec.get("show_data_labels", False):
+        data_cfg = chart_spec.get("data_labels") or {}
+        plot = chart.plots[0]
+        plot.has_data_labels = True
+        charts_module.apply_data_label_style(plot.data_labels, data_cfg)
+        _set_label_nowrap(chart)
+
+        if group.chart_def.dir == "horizontal":
+            axis_max = chart_spec["bar"].get("axis_max", max(group.chart_def.values))
+            dl_cfg: dict[str, object] = chart_spec.get("data_labels") or {}
+            excel_fmt = str(dl_cfg.get("format", "General"))
+            _set_horizontal_label_offsets(
+                chart,
+                group.chart_def.values,
+                axis_max,
+                plot_layout["w"],
+                chart_width_emu=w,
+                num_format=excel_fmt,
+                label_format=group.chart_def.format,
+                font_size_pt=label_font_size_pt,
+            )
+
+
+def _render_waterfall_group(
+    slide: Slide,
+    group: ChartGroup,
+    charts_module: ModuleType,
+    x: int, y: int, w: int, h: int,
+    label_font_size_pt: int,
+) -> None:
+    """Render a waterfall chart group."""
+    chart_spec = _chart_def_to_spec(group, label_font_size=label_font_size_pt)
+
+    # Compute plot layout — waterfall labels use center positioning,
+    # so reserve space at the right for the largest bar label.
+    has_labels = chart_spec.get("show_data_labels", False)
+    values = _sorted_values(group)
+    if group.chart_def.dir == "horizontal":
+        plot_layout = _horizontal_plot_layout(
+            w, label_font_size_pt, has_labels,
+            values, group.chart_def.format,
+        )
+    else:
+        plot_layout = _vertical_plot_layout(h, label_font_size_pt, has_labels)
+    chart_spec["waterfall"]["plot_layout"] = plot_layout
+
+    chart_type, chart_data, style = charts_module.build_waterfall_payload(chart_spec)
+
+    chart_frame = slide.shapes.add_chart(
+        chart_type, Emu(x), Emu(y), Emu(w), Emu(h), chart_data
+    )
+    chart = chart_frame.chart
+
+    chart.has_legend = False
+    _delete_auto_title(chart)
+
+    # Apply series colors (offset series + value series)
+    charts_module.apply_series_colors(chart, style.get("series_colors", []))
+
+    # Apply waterfall-specific styling (offset no-fill, total point colors)
+    wf_meta = style.get("waterfall", {})
+    if wf_meta:
+        charts_module.apply_waterfall_style(chart, wf_meta)
+        charts_module.apply_waterfall_chart_style(chart, wf_meta)
+
+    # Add connector lines and overlay labels as separate shapes on the slide.
+    # This handles both incremental and total bar labels, plus connectors.
+    # We do NOT use built-in chart data labels — overlays give full control.
+    if chart_spec.get("show_data_labels", False) and wf_meta:
+        prs_part = cast(Any, slide.part.package).presentation_part
+        prs_obj = prs_part.presentation
+        slide_size: tuple[int, int] = (int(prs_obj.slide_width), int(prs_obj.slide_height))
+        charts_module.add_waterfall_overlays(
+            slide, (x, y, w, h), wf_meta, slide_size=slide_size,
+        )
