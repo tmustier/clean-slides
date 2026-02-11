@@ -88,7 +88,9 @@ def _show_file_summary(prs: PresentationObj, file_path: str) -> None:
         title = entry["title"][:60] or "(no title)"
         comments = get_slide_comments(slide)
         cm_str = f"  {len(comments)}cm" if comments else ""
-        print(f"  {entry['slide']:3d}  {title:62s}  [{layout_name}]  {shapes_n}sh  {words}w{cm_str}")
+        print(
+            f"  {entry['slide']:3d}  {title:62s}  [{layout_name}]  {shapes_n}sh  {words}w{cm_str}"
+        )
     print()
 
 
@@ -111,7 +113,9 @@ def _show_slide_header(slide: Slide, slide_label: str) -> None:
     print(f"\n  Slide {slide_label}: {title}")
     if subtitle:
         print(f"  {subtitle}")
-    print(f"  Layout: \"{layout.name}\" → {', '.join(layout_phs) if layout_phs else '(no placeholders)'}")
+    print(
+        f"  Layout: \"{layout.name}\" → {', '.join(layout_phs) if layout_phs else '(no placeholders)'}"
+    )
     print()
 
 
