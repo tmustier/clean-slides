@@ -38,6 +38,7 @@ class ChartsArgs(Protocol):
     template: str | None
     layout: str | None
     expected_template: str | None
+    module_path: str | None
 
 
 class ScreenshotArgs(Protocol):
@@ -97,6 +98,7 @@ def cmd_charts(args: ChartsArgs) -> int:
             template=template_path,
             layout=args.layout,
             expected_template=args.expected_template,
+            module_path=args.module_path,
         )
     except (FileNotFoundError, ImportError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
