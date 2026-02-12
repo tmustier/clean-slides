@@ -374,9 +374,10 @@ class TestWaterfallSpecAndLabels(unittest.TestCase):
         )
 
         spec = chart_def_to_spec(group)
-        assert spec["categories"] == ["", "", ""]
+        categories = spec.get("categories")
+        assert categories == ["", "", ""]
 
-        wf = spec["waterfall"]
+        wf = _to_str_dict(spec.get("waterfall"))
         assert wf["total_categories"] == [0, 2]
         assert wf["total_override"] is True
         assert isinstance(wf["connector_inset"], Emu)

@@ -6,6 +6,37 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import cast
 
 
+def str_key_dict(value: object) -> dict[str, object]:
+    """Return a ``dict[str, object]`` view of a mapping-like payload."""
+    if not isinstance(value, dict):
+        return {}
+
+    result: dict[str, object] = {}
+    typed_value = cast(dict[object, object], value)
+    for key, item in typed_value.items():
+        if isinstance(key, str):
+            result[key] = item
+    return result
+
+
+def object_list(value: object) -> list[object]:
+    """Coerce list/tuple payloads into ``list[object]``."""
+    if isinstance(value, list):
+        return cast(list[object], value)
+    if isinstance(value, tuple):
+        return list(cast(tuple[object, ...], value))
+    return []
+
+
+def optional_str_list(value: object) -> list[str | None]:
+    """Coerce unknown list payload to ``list[str | None]``."""
+    result: list[str | None] = []
+    for item in object_list(value):
+        if item is None or isinstance(item, str):
+            result.append(item)
+    return result
+
+
 def normalize_list(value: object) -> list[object]:
     """Normalize scalar/None values into list form."""
     if value is None:

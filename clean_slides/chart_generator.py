@@ -22,6 +22,7 @@ from clean_slides.chart_engine.colors import apply_color
 from clean_slides.chart_engine.defaults import EXPECTED_TEMPLATE_ALIASES
 from clean_slides.chart_engine.overlays import add_waterfall_overlays
 from clean_slides.chart_engine.payloads import build_bar_payload, build_waterfall_payload
+from clean_slides.chart_engine.spec_utils import object_list, str_key_dict
 from clean_slides.chart_engine.style import (
     apply_bar_chart_style,
     apply_series_colors,
@@ -67,18 +68,6 @@ __all__ = [
     "normalize_chart_specs",
     "resolve_expected_template",
 ]
-
-
-def _coerce_str_key_dict(value: object) -> dict[str, object]:
-    if not isinstance(value, dict):
-        return {}
-
-    typed_value = cast(dict[object, object], value)
-    result: dict[str, object] = {}
-    for key, item in typed_value.items():
-        if isinstance(key, str):
-            result[key] = item
-    return result
 
 
 def parse_cli_args() -> ChartCliArgs:
@@ -180,15 +169,15 @@ def normalize_chart_specs(raw: object) -> tuple[list[ChartSpec], DeckMeta]:
     deck_meta: DeckMeta = {}
 
     if isinstance(raw, list):
-        charts_raw = cast(list[object], raw)
+        charts_raw = object_list(cast(object, raw))
     elif isinstance(raw, dict):
-        raw_dict = _coerce_str_key_dict(cast(object, raw))
+        raw_dict = str_key_dict(cast(object, raw))
         if "charts" in raw_dict:
             charts_value = raw_dict.get("charts")
             if charts_value is None:
                 charts_raw = []
             elif isinstance(charts_value, list):
-                charts_raw = cast(list[object], charts_value)
+                charts_raw = object_list(cast(object, charts_value))
             else:
                 raise ValueError("'charts' must be a JSON array when provided.")
             deck_meta = {key: value for key, value in raw_dict.items() if key != "charts"}
@@ -204,7 +193,7 @@ def normalize_chart_specs(raw: object) -> tuple[list[ChartSpec], DeckMeta]:
     for spec in charts_raw:
         if not isinstance(spec, dict):
             raise ValueError("Each chart spec must be a JSON object.")
-        normalized_spec = _coerce_str_key_dict(cast(object, spec))
+        normalized_spec = str_key_dict(cast(object, spec))
         validate_chart_spec(normalized_spec)
         normalized.append(normalized_spec)
 
