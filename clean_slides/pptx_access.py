@@ -153,6 +153,11 @@ def paragraph_xml_element(paragraph: object) -> object | None:
     return getattr(paragraph, "_element", None)
 
 
+def text_frame_xml_element(text_frame: object) -> object | None:
+    """Return underlying OOXML text-frame element when available."""
+    return getattr(text_frame, "_element", None)
+
+
 def chart_xml_space(chart: object) -> object | None:
     """Return underlying OOXML chart-space element when available."""
     return getattr(chart, "_chartSpace", None)
