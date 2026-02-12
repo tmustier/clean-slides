@@ -161,7 +161,6 @@ class TableDefaults:
 
 
 # Module-level mutable state (rewritten by _reload).
-# pyright: reportConstantRedefinition=false
 MOON_COLORS: dict[str, RGBColor | None] = {}
 MOON_COLORS_HEX: dict[str, str | None] = {}
 MOON_FILLS: dict[str, int] = {}
@@ -237,11 +236,11 @@ def reload_constants(config: TemplateConfig | None = None) -> None:
             for key, val in mo["arc_adjustments"].items()
         }
     )
-    MOON_SIZE_EMU = int(mo["size_emu"])
+    globals()["MOON_SIZE_EMU"] = int(mo["size_emu"])
     MOON_GROUP.clear()
     MOON_GROUP.update(mo["group"])
 
-    ICON_DEFAULT_SIZE_EMU = int(ic["default_size_emu"])
+    globals()["ICON_DEFAULT_SIZE_EMU"] = int(ic["default_size_emu"])
 
     # -- Fonts --
     Fonts.HEADLINE = str(f["headline"])
@@ -300,7 +299,7 @@ def reload_constants(config: TemplateConfig | None = None) -> None:
             for lv in levels
         }
     )
-    BULLET_DEF_TAB_SZ_EMU = int(bu["def_tab_sz_emu"])
+    globals()["BULLET_DEF_TAB_SZ_EMU"] = int(bu["def_tab_sz_emu"])
     BULLET_BU_FONT.clear()
     BULLET_BU_FONT.update(bu["bu_font"])
     BULLET_DEF_RPR.clear()
