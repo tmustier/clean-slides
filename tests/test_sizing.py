@@ -22,7 +22,10 @@ PAD = int(TableDefaults.CELL_PADDING)
 
 
 def _protected_attr(target: object, name: str) -> Any:
-    return object.__getattribute__(target, name)
+    value = object.__getattribute__(target, name)
+    if isinstance(target, type) and isinstance(value, staticmethod):
+        return value.__func__
+    return value
 
 
 class TestColumnSizer(unittest.TestCase):

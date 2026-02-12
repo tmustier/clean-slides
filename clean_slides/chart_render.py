@@ -48,6 +48,18 @@ def _to_str_any_dict(value: object) -> dict[str, Any]:
     return result
 
 
+def _to_optional_str_list(value: object) -> list[str | None]:
+    """Coerce an unknown list payload to ``list[str | None]``."""
+    if not isinstance(value, list):
+        return []
+
+    result: list[str | None] = []
+    for item in cast(list[object], value):
+        if item is None or isinstance(item, str):
+            result.append(item)
+    return result
+
+
 def _collect_chart_groups(spec: TableSpec) -> list[ChartGroup]:
     """Scan the cell grid and group adjacent ChartRef cells by chart name."""
     if not spec.cells or not spec.chart_defs:
@@ -805,7 +817,7 @@ def _render_bar_group(
     chart.has_legend = False
     _delete_auto_title(chart)
 
-    series_colors = cast(list[str | None], style.get("series_colors", []))
+    series_colors = _to_optional_str_list(style.get("series_colors", []))
     charts_module.apply_series_colors(chart, series_colors)
 
     if group.chart_def.colors:
@@ -890,7 +902,7 @@ def _render_waterfall_group(
     _delete_auto_title(chart)
 
     # Apply series colors (offset series + value series)
-    series_colors = cast(list[str | None], style.get("series_colors", []))
+    series_colors = _to_optional_str_list(style.get("series_colors", []))
     charts_module.apply_series_colors(chart, series_colors)
 
     # Apply waterfall-specific styling (offset no-fill, total point colors)
