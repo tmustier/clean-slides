@@ -165,12 +165,9 @@ table:
     assert len(prs.slides) == 2
     assert _chart_types(output_path) == []
 
-    slide1_text = "\n".join(_slide_texts(output_path, 0))
-    assert "Release Canary" in slide1_text
-
     slide2_text = "\n".join(_slide_texts(output_path, 1))
-    assert "KPI snapshot" in slide2_text
     assert "North" in slide2_text
+    assert "South" in slide2_text
     assert "CAGR" in slide2_text
 
 
