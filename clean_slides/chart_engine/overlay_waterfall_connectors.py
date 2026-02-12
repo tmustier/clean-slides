@@ -1,19 +1,9 @@
 """Connector rendering helpers for waterfall overlays."""
 
-# pyright: reportUnknownMemberType=false
-# pyright: reportUnknownParameterType=false
-# pyright: reportUnknownVariableType=false
-# pyright: reportUnknownArgumentType=false
-# pyright: reportMissingParameterType=false
-# pyright: reportMissingTypeArgument=false
-# pyright: reportGeneralTypeIssues=false
-# pyright: reportArgumentType=false
-# pyright: reportCallIssue=false
-# pyright: reportAttributeAccessIssue=false
-# pyright: reportIndexIssue=false
-# pyright: reportOperatorIssue=false
-
 from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import Any, Union, cast
 
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
@@ -21,12 +11,39 @@ from pptx.enum.shapes import MSO_SHAPE
 from .colors import apply_color
 from .geometry import value_to_x, value_to_y
 
+Number = Union[int, float]
+FloatOrNone = Union[float, None]
+ColorValue = Union[RGBColor, str, None]
+Geometry = Mapping[str, object]
+
+
+def _geometry_series(geometry: Geometry, key: str) -> list[float]:
+    raw_values = geometry.get(key)
+    if not isinstance(raw_values, list):
+        return []
+
+    typed_values = cast(list[object], raw_values)
+    series: list[float] = []
+    for item in typed_values:
+        if isinstance(item, (int, float)):
+            series.append(float(item))
+    return series
+
+
+def _connector_value(values: Sequence[FloatOrNone], idx: int) -> FloatOrNone:
+    if idx < 0 or idx >= len(values):
+        return None
+    value = values[idx]
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
 
 def render_waterfall_connectors(
-    slide,
-    categories: list[object],
-    connector_values: list[float | None],
-    geometry: dict,
+    slide: Any,
+    categories: Sequence[object],
+    connector_values: Sequence[FloatOrNone],
+    geometry: Geometry,
     orientation: str,
     axis_min: float,
     axis_max: float,
@@ -35,12 +52,12 @@ def render_waterfall_connectors(
     plot_width: float,
     plot_height: float,
     connector_style: str,
-    connector_inset: int,
-    connector_overlap: int,
+    connector_inset: Number,
+    connector_overlap: Number,
     line_width: int,
-    dash_length: int | None,
+    dash_length: Union[int, None],
     dash_gap: int,
-    connector_color,
+    connector_color: ColorValue,
 ) -> None:
     """Render connector segments between adjacent waterfall categories."""
 
@@ -69,62 +86,70 @@ def render_waterfall_connectors(
             if dash_length is None or dash_length <= 0:
                 add_dash_segment(x, start, line_width, total)
                 return
-            pos = 0.0
-            while pos < total:
-                seg_len = min(dash_length, total - pos)
-                add_dash_segment(x, start + pos, line_width, seg_len)
-                pos += seg_len + dash_gap
-        else:
-            y = min(y1, y2) - line_width / 2
-            start = min(x1, x2)
-            total = abs(x2 - x1)
-            if dash_length is None or dash_length <= 0:
-                add_dash_segment(start, y, total, line_width)
-                return
-            pos = 0.0
-            while pos < total:
-                seg_len = min(dash_length, total - pos)
-                add_dash_segment(start + pos, y, seg_len, line_width)
-                pos += seg_len + dash_gap
 
-    bar_bottoms = geometry.get("bar_bottoms") or []
-    bar_tops = geometry.get("bar_tops") or []
-    bar_rights = geometry.get("bar_rights") or []
-    bar_lefts = geometry.get("bar_lefts") or []
+            pos = 0.0
+            while pos < total:
+                segment_length = min(dash_length, total - pos)
+                add_dash_segment(x, start + pos, line_width, segment_length)
+                pos += segment_length + dash_gap
+            return
+
+        y = min(y1, y2) - line_width / 2
+        start = min(x1, x2)
+        total = abs(x2 - x1)
+        if dash_length is None or dash_length <= 0:
+            add_dash_segment(start, y, total, line_width)
+            return
+
+        pos = 0.0
+        while pos < total:
+            segment_length = min(dash_length, total - pos)
+            add_dash_segment(start + pos, y, segment_length, line_width)
+            pos += segment_length + dash_gap
+
+    bar_bottoms = _geometry_series(geometry, "bar_bottoms")
+    bar_tops = _geometry_series(geometry, "bar_tops")
+    bar_rights = _geometry_series(geometry, "bar_rights")
+    bar_lefts = _geometry_series(geometry, "bar_lefts")
+
+    inset = float(connector_inset)
+    overlap = float(connector_overlap)
 
     for idx in range(len(categories) - 1):
-        if idx >= len(connector_values):
-            continue
-        current_value = connector_values[idx]
+        current_value = _connector_value(connector_values, idx)
         if current_value is None:
             continue
-        next_value = connector_values[idx + 1] if idx + 1 < len(connector_values) else None
+
+        next_value = _connector_value(connector_values, idx + 1)
 
         if orientation == "horizontal":
             if idx >= len(bar_bottoms) or idx + 1 >= len(bar_tops):
                 continue
-            x_pos = value_to_x(current_value, axis_min, axis_max, plot_left, plot_width)
-            x_pos -= connector_inset
+
+            x_pos = value_to_x(current_value, axis_min, axis_max, plot_left, plot_width) - inset
             base_start = bar_bottoms[idx]
             base_end = bar_tops[idx + 1]
-            y_start = base_start - connector_overlap
-            y_end = base_end + connector_overlap
+            y_start = base_start - overlap
+            y_end = base_end + overlap
             add_connector(x_pos, y_start, x_pos, y_end)
+
             if connector_style == "step" and next_value is not None:
-                next_x = value_to_x(next_value, axis_min, axis_max, plot_left, plot_width)
-                next_x -= connector_inset
+                next_x = value_to_x(next_value, axis_min, axis_max, plot_left, plot_width) - inset
                 if next_x != x_pos:
                     add_connector(x_pos, base_end, next_x, base_end)
-        else:
-            if idx >= len(bar_rights) or idx + 1 >= len(bar_lefts):
-                continue
-            y_pos = value_to_y(current_value, axis_min, axis_max, plot_top, plot_height)
-            base_start = bar_rights[idx]
-            base_end = bar_lefts[idx + 1]
-            x_start = base_start - connector_overlap
-            x_end = base_end + connector_overlap
-            add_connector(x_start, y_pos, x_end, y_pos)
-            if connector_style == "step" and next_value is not None:
-                next_y = value_to_y(next_value, axis_min, axis_max, plot_top, plot_height)
-                if next_y != y_pos:
-                    add_connector(base_end, y_pos, base_end, next_y)
+            continue
+
+        if idx >= len(bar_rights) or idx + 1 >= len(bar_lefts):
+            continue
+
+        y_pos = value_to_y(current_value, axis_min, axis_max, plot_top, plot_height)
+        base_start = bar_rights[idx]
+        base_end = bar_lefts[idx + 1]
+        x_start = base_start - overlap
+        x_end = base_end + overlap
+        add_connector(x_start, y_pos, x_end, y_pos)
+
+        if connector_style == "step" and next_value is not None:
+            next_y = value_to_y(next_value, axis_min, axis_max, plot_top, plot_height)
+            if next_y != y_pos:
+                add_connector(base_end, y_pos, base_end, next_y)
