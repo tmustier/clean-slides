@@ -10,6 +10,13 @@ from pptx import Presentation
 from pptx.enum.chart import XL_CHART_TYPE
 
 from clean_slides.cli import cmd_generate
+from clean_slides.pptx_access import (
+    iter_shapes,
+    presentation_chart_types,
+    shape_has_connector_endpoints,
+    shape_is_placeholder,
+    shape_text_frame_text,
+)
 
 
 @dataclass
@@ -59,35 +66,20 @@ def _chart_xml(path: Path, chart_index: int = 1) -> Any:
 
 def _chart_types(path: Path) -> list[int]:
     prs = Presentation(str(path))
-    chart_types: list[int] = []
-    for slide in prs.slides:
-        for shape in slide.shapes:
-            if not bool(getattr(shape, "has_chart", False)):
-                continue
-            chart = getattr(shape, "chart", None)
-            if chart is None:
-                continue
-            chart_type = getattr(chart, "chart_type", None)
-            if chart_type is None:
-                continue
-            chart_types.append(int(chart_type))
-    return chart_types
+    return presentation_chart_types(prs)
 
 
 def _non_placeholder_texts(path: Path) -> list[str]:
     prs = Presentation(str(path))
     texts: list[str] = []
-    for shape in prs.slides[0].shapes:
-        if bool(getattr(shape, "is_placeholder", False)):
+    for shape in iter_shapes(prs.slides[0]):
+        if shape_is_placeholder(shape):
             continue
-        if not bool(getattr(shape, "has_text_frame", False)):
+
+        raw_text = shape_text_frame_text(shape)
+        if raw_text is None:
             continue
-        text_frame = getattr(shape, "text_frame", None)
-        if text_frame is None:
-            continue
-        raw_text = getattr(text_frame, "text", None)
-        if not isinstance(raw_text, str):
-            continue
+
         text = raw_text.strip()
         if text:
             texts.append(text)
@@ -97,10 +89,8 @@ def _non_placeholder_texts(path: Path) -> list[str]:
 def _connector_count(path: Path) -> int:
     prs = Presentation(str(path))
     count = 0
-    for shape in prs.slides[0].shapes:
-        begin_x = getattr(shape, "begin_x", None)
-        end_x = getattr(shape, "end_x", None)
-        if begin_x is not None and end_x is not None:
+    for shape in iter_shapes(prs.slides[0]):
+        if shape_has_connector_endpoints(shape):
             count += 1
     return count
 

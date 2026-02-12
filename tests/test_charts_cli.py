@@ -13,6 +13,7 @@ from pptx.enum.chart import XL_CHART_TYPE
 from clean_slides.chart_engine.payloads import build_bar_payload
 from clean_slides.charts import generate_charts_from_json
 from clean_slides.cli_render import cmd_charts
+from clean_slides.pptx_access import presentation_chart_types
 
 
 @dataclass
@@ -41,19 +42,7 @@ def _to_str_dict(value: object) -> dict[str, object]:
 
 def _chart_types(path: Path) -> list[int]:
     prs = Presentation(str(path))
-    chart_types: list[int] = []
-    for slide in prs.slides:
-        for shape in slide.shapes:
-            if not bool(getattr(shape, "has_chart", False)):
-                continue
-            chart = getattr(shape, "chart", None)
-            if chart is None:
-                continue
-            chart_type = getattr(chart, "chart_type", None)
-            if chart_type is None:
-                continue
-            chart_types.append(int(chart_type))
-    return chart_types
+    return presentation_chart_types(prs)
 
 
 def _run_cmd_charts(tmp_path: Path, name: str, spec: dict[str, object]) -> Path:

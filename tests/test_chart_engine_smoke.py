@@ -6,37 +6,26 @@ from pptx import Presentation
 from pptx.enum.chart import XL_CHART_TYPE
 
 from clean_slides.chart_engine.builder import build_chart
+from clean_slides.pptx_access import (
+    iter_shapes,
+    iter_slides,
+    presentation_chart_types,
+    shape_text_frame_text,
+)
 
 
 def _chart_types(path: Path) -> list[int]:
     prs = Presentation(str(path))
-    result: list[int] = []
-    for slide in prs.slides:
-        for shape in slide.shapes:
-            if not bool(getattr(shape, "has_chart", False)):
-                continue
-            chart = getattr(shape, "chart", None)
-            if chart is None:
-                continue
-            chart_type = getattr(chart, "chart_type", None)
-            if chart_type is None:
-                continue
-            result.append(int(chart_type))
-    return result
+    return presentation_chart_types(prs)
 
 
 def _shape_texts(path: Path) -> list[str]:
     prs = Presentation(str(path))
     texts: list[str] = []
-    for slide in prs.slides:
-        for shape in slide.shapes:
-            if not bool(getattr(shape, "has_text_frame", False)):
-                continue
-            text_frame = getattr(shape, "text_frame", None)
-            if text_frame is None:
-                continue
-            text_value = getattr(text_frame, "text", None)
-            if not isinstance(text_value, str):
+    for slide in iter_slides(prs):
+        for shape in iter_shapes(slide):
+            text_value = shape_text_frame_text(shape)
+            if text_value is None:
                 continue
             text = text_value.strip()
             if text:
