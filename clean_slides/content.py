@@ -148,6 +148,11 @@ def _make_sub_paragraph(sub_text: str, parent: Paragraph) -> Paragraph:
     )
 
 
+def make_sub_paragraph(sub_text: str, parent: Paragraph) -> Paragraph:
+    """Public alias for subtitle paragraph construction."""
+    return _make_sub_paragraph(sub_text, parent)
+
+
 #: Color used for ``sub`` subtitle lines — body text color (typically "tx1").
 SUB_COLOR: str = "tx1"
 

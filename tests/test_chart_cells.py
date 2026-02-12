@@ -1,15 +1,11 @@
 """Tests for chart cell parsing, validation, sizing, and rendering."""
 
-# pyright: reportUnknownMemberType=false
-# pyright: reportAttributeAccessIssue=false
-# pyright: reportUnknownVariableType=false
-# pyright: reportPrivateUsage=false
-
 from __future__ import annotations
 
 import unittest
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import pytest
 from pptx import Presentation
@@ -17,9 +13,9 @@ from pptx.util import Emu
 
 from clean_slides.chart_render import (
     ChartGroup,
-    _chart_def_to_spec,
-    _python_fmt_to_excel_format,
-    _waterfall_overlay_label_texts,
+    chart_def_to_spec,
+    python_fmt_to_excel_format,
+    waterfall_overlay_label_texts,
 )
 from clean_slides.cli import cmd_generate, cmd_validate
 from clean_slides.constants import Fonts, TableDefaults
@@ -66,6 +62,17 @@ FONTS = FontConfig(
 )
 
 PAD = int(TableDefaults.CELL_PADDING)
+
+
+def _to_str_dict(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+
+    result: dict[str, object] = {}
+    for key, item in cast(dict[object, object], value).items():
+        if isinstance(key, str):
+            result[key] = item
+    return result
 
 
 # ===================================================================
@@ -306,8 +313,7 @@ class TestParseCharts(unittest.TestCase):
 
         spec = TableSpec.from_dict(data)
         assert spec.groups is not None
-        header = spec.groups[0].header
-        assert isinstance(header, dict)
+        header = _to_str_dict(spec.groups[0].header)
         assert header.get("text") == "Impact of net site additions"
         assert header.get("sub") == "(at constant prices)"
 
@@ -338,15 +344,14 @@ class TestParseCharts(unittest.TestCase):
         spec = TableSpec.from_dict(data)
         assert spec.groups is not None
         assert spec.groups[0].promoted is True
-        header = spec.groups[0].header
-        assert isinstance(header, dict)
+        header = _to_str_dict(spec.groups[0].header)
         assert header.get("text") == "FY33E EBITDAaL at FY26 mgn."
         assert header.get("sub") == "(i.e. impact of Revenue growth)"
 
 
 class TestChartFormatConversion(unittest.TestCase):
     def test_zero_decimal_format_preserved(self) -> None:
-        excel = _python_fmt_to_excel_format("{:.0f}", [1.2, 2.8])
+        excel = python_fmt_to_excel_format("{:.0f}", [1.2, 2.8])
         assert excel == "0"
 
 
@@ -368,7 +373,7 @@ class TestWaterfallSpecAndLabels(unittest.TestCase):
             max_col=0,
         )
 
-        spec = _chart_def_to_spec(group)
+        spec = chart_def_to_spec(group)
         assert spec["categories"] == ["", "", ""]
 
         wf = spec["waterfall"]
@@ -388,7 +393,7 @@ class TestWaterfallSpecAndLabels(unittest.TestCase):
             }
         }
 
-        labels = _waterfall_overlay_label_texts(meta, "{:,.0f}")
+        labels = waterfall_overlay_label_texts(meta, "{:,.0f}")
         assert labels == ["954", "13", "1,166"]
 
 
@@ -660,10 +665,13 @@ table:
             prs = Presentation(str(output_path))
             slide = prs.slides[0]
 
-            chart_shapes = [s for s in slide.shapes if hasattr(s, "chart")]
+            chart_shapes = [
+                shape for shape in slide.shapes if bool(getattr(shape, "has_chart", False))
+            ]
             assert len(chart_shapes) >= 1, f"Expected chart shapes, found {len(chart_shapes)}"
-            chart = chart_shapes[0].chart
-            assert chart.has_legend is False
+            chart = getattr(chart_shapes[0], "chart", None)
+            assert chart is not None
+            assert bool(getattr(chart, "has_legend", False)) is False
 
     def test_generate_vertical_charts(self) -> None:
         import tempfile
