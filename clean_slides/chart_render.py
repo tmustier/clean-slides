@@ -449,6 +449,21 @@ def _hide_waterfall_overlay_category_labels(meta: dict[str, Any]) -> None:
     meta["overlay"] = overlay_obj
 
 
+def chart_def_to_spec(group: ChartGroup, label_font_size: int = 8) -> dict[str, Any]:
+    """Public alias for converting ``ChartDef`` + refs into chart payload spec."""
+    return _chart_def_to_spec(group, label_font_size)
+
+
+def python_fmt_to_excel_format(fmt: str, values: list[float]) -> str:
+    """Public alias for Python-to-Excel format conversion helper."""
+    return _python_fmt_to_excel_format(fmt, values)
+
+
+def waterfall_overlay_label_texts(meta: dict[str, Any], fmt: str) -> list[str]:
+    """Public alias for formatted waterfall overlay value labels."""
+    return _waterfall_overlay_label_texts(meta, fmt)
+
+
 def _rewrite_overlay_value_label_texts(
     slide: Slide,
     start_shape_index: int,
