@@ -16,6 +16,7 @@ from pptx.oxml.xmlchemy import OxmlElement
 from pptx.slide import Slide
 from pptx.util import Emu, Pt
 
+from .chart_engine.spec_utils import object_list, optional_str_list, str_key_dict
 from .charts import ChartEngine
 from .spec import Box, ChartDef, ChartRef, ContentArea, TableLayout, TableSpec
 
@@ -36,27 +37,19 @@ class ChartGroup:
     max_col: int
 
 
-def _to_str_any_dict(value: object) -> dict[str, Any]:
-    """Safely coerce an object to ``dict[str, Any]``."""
-    if not isinstance(value, dict):
-        return {}
-
-    result: dict[str, Any] = {}
-    for key, item in cast(dict[object, object], value).items():
-        if isinstance(key, str):
-            result[key] = item
-    return result
+def _iterable_objects(value: object) -> list[object]:
+    """Coerce list/tuple/set payloads into ``list[object]``."""
+    if isinstance(value, set):
+        return list(cast(set[object], value))
+    return object_list(value)
 
 
-def _to_optional_str_list(value: object) -> list[str | None]:
-    """Coerce an unknown list payload to ``list[str | None]``."""
-    if not isinstance(value, list):
-        return []
-
-    result: list[str | None] = []
-    for item in cast(list[object], value):
-        if item is None or isinstance(item, str):
-            result.append(item)
+def _int_set(value: object) -> set[int]:
+    """Coerce list/tuple/set payload to ``set[int]``."""
+    result: set[int] = set()
+    for item in _iterable_objects(value):
+        if isinstance(item, int):
+            result.add(item)
     return result
 
 
@@ -183,7 +176,7 @@ def _sorted_values(group: ChartGroup) -> list[float]:
     return [group.chart_def.values[ref[2] - 1] for ref in sorted_refs]
 
 
-def _chart_def_to_spec(group: ChartGroup, label_font_size: int = 8) -> dict[str, Any]:
+def _chart_def_to_spec(group: ChartGroup, label_font_size: int = 8) -> dict[str, object]:
     """Convert a ChartDef + group refs into a JSON spec dict.
 
     Dispatches to bar or waterfall spec builder based on chart type.
@@ -193,13 +186,13 @@ def _chart_def_to_spec(group: ChartGroup, label_font_size: int = 8) -> dict[str,
     return _bar_chart_spec(group, label_font_size)
 
 
-def _bar_chart_spec(group: ChartGroup, label_font_size: int = 8) -> dict[str, Any]:
+def _bar_chart_spec(group: ChartGroup, label_font_size: int = 8) -> dict[str, object]:
     """Build a JSON spec dict for build_bar_payload (clustered bar chart)."""
     chart_def = group.chart_def
     values = _sorted_values(group)
     categories = [str(i + 1) for i in range(len(values))]
 
-    series_entry: dict[str, Any] = {
+    series_entry: dict[str, object] = {
         "name": "Values",
         "values": values,
     }
@@ -207,7 +200,7 @@ def _bar_chart_spec(group: ChartGroup, label_font_size: int = 8) -> dict[str, An
         series_entry["color"] = chart_def.color
 
     # Data label format conversion: Python "€{}m" → Excel "0" style
-    data_labels: dict[str, Any] = {}
+    data_labels: dict[str, object] = {}
     fmt = chart_def.format
     if fmt and fmt != "{}":
         data_labels["format"] = _python_fmt_to_excel_format(fmt, values)
@@ -224,7 +217,20 @@ def _bar_chart_spec(group: ChartGroup, label_font_size: int = 8) -> dict[str, An
 
     data_labels["font_size"] = label_font_size
 
-    spec: dict[str, Any] = {
+    bar_spec: dict[str, object] = {
+        "orientation": chart_def.dir,
+        "gap_width": _CELL_CHART_GAP_WIDTH,
+        "overlap": 0,
+        "plot_layout": {},  # computed dynamically in render_chart_cells
+        "series_border_color": "none",
+        "axis_line_color": "none",
+    }
+    if chart_def.scale_max is not None:
+        bar_spec["axis_max"] = chart_def.scale_max
+    if chart_def.scale_min is not None:
+        bar_spec["axis_min"] = chart_def.scale_min
+
+    spec: dict[str, object] = {
         "type": "clustered",
         "categories": categories,
         "series": [series_entry],
@@ -232,25 +238,13 @@ def _bar_chart_spec(group: ChartGroup, label_font_size: int = 8) -> dict[str, An
         "data_labels": data_labels,
         "show_legend": False,
         "orientation": chart_def.dir,
-        "bar": {
-            "orientation": chart_def.dir,
-            "gap_width": _CELL_CHART_GAP_WIDTH,
-            "overlap": 0,
-            "plot_layout": {},  # computed dynamically in render_chart_cells
-            "series_border_color": "none",
-            "axis_line_color": "none",
-        },
+        "bar": bar_spec,
     }
-
-    if chart_def.scale_max is not None:
-        spec["bar"]["axis_max"] = chart_def.scale_max
-    if chart_def.scale_min is not None:
-        spec["bar"]["axis_min"] = chart_def.scale_min
 
     return spec
 
 
-def _waterfall_chart_spec(group: ChartGroup, label_font_size: int = 8) -> dict[str, Any]:
+def _waterfall_chart_spec(group: ChartGroup, label_font_size: int = 8) -> dict[str, object]:
     """Build a JSON spec dict for build_waterfall_payload."""
     chart_def = group.chart_def
     values = _sorted_values(group)
@@ -259,7 +253,7 @@ def _waterfall_chart_spec(group: ChartGroup, label_font_size: int = 8) -> dict[s
     # We still need one category per value for geometry/stacking.
     categories = ["" for _ in values]
 
-    series_entry: dict[str, Any] = {
+    series_entry: dict[str, object] = {
         "name": "Values",
         "values": values,
     }
@@ -283,7 +277,7 @@ def _waterfall_chart_spec(group: ChartGroup, label_font_size: int = 8) -> dict[s
 
     label_pos = chart_def.label_position
 
-    wf_config: dict[str, Any] = {
+    wf_config: dict[str, object] = {
         "orientation": chart_def.dir,
         "total_categories": total_categories,
         "decrease_categories": decrease_categories,
@@ -309,7 +303,7 @@ def _waterfall_chart_spec(group: ChartGroup, label_font_size: int = 8) -> dict[s
     if excel_fmt:
         wf_config["data_label_format"] = excel_fmt
 
-    spec: dict[str, Any] = {
+    spec: dict[str, object] = {
         "type": "waterfall",
         "categories": categories,
         "series": [series_entry],
@@ -386,50 +380,34 @@ def _format_chart_label_value(value: float | None, fmt: str) -> str | None:
         return str(value)
 
 
-def _waterfall_overlay_label_texts(meta: dict[str, Any], fmt: str) -> list[str]:
+def _waterfall_overlay_label_texts(meta: dict[str, object], fmt: str) -> list[str]:
     """Compute overlay label texts for a waterfall chart.
 
     Mirrors the generator's label-value selection logic but applies the
     clean-slides format string (e.g. ``{:,.0f}``) so labels can include
     thousands separators and custom affixes.
     """
-    overlay_obj = _to_str_any_dict(meta.get("overlay"))
+    overlay_obj = str_key_dict(meta.get("overlay"))
     if not overlay_obj:
         return []
 
     categories_obj = overlay_obj.get("categories")
     cumulative_obj = overlay_obj.get("cumulative_totals")
-    delta_obj = overlay_obj.get("delta_values")
-    total_categories_obj = overlay_obj.get("total_categories")
-
     if not isinstance(categories_obj, list) or not isinstance(cumulative_obj, list):
         return []
 
-    categories = cast(list[object], categories_obj)
-    cumulative_values = cast(list[object], cumulative_obj)
+    categories = object_list(cast(object, categories_obj))
+    cumulative_values = object_list(cast(object, cumulative_obj))
+    delta_values_raw = object_list(overlay_obj.get("delta_values"))
+    total_categories = _int_set(overlay_obj.get("total_categories"))
+
     categories_count = len(categories)
     cumulative_totals: list[float | None] = [
         float(value) if isinstance(value, (int, float)) else None for value in cumulative_values
     ]
-    delta_values: list[float | None] = []
-    if isinstance(delta_obj, list):
-        delta_values = [
-            float(value) if isinstance(value, (int, float)) else None
-            for value in cast(list[object], delta_obj)
-        ]
-
-    total_categories: set[int] = set()
-    total_category_items: list[object] = []
-    if isinstance(total_categories_obj, list):
-        total_category_items = cast(list[object], total_categories_obj)
-    elif isinstance(total_categories_obj, set):
-        total_category_items = list(cast(set[object], total_categories_obj))
-    elif isinstance(total_categories_obj, tuple):
-        total_category_items = list(cast(tuple[object, ...], total_categories_obj))
-
-    for item in total_category_items:
-        if isinstance(item, int):
-            total_categories.add(item)
+    delta_values: list[float | None] = [
+        float(value) if isinstance(value, (int, float)) else None for value in delta_values_raw
+    ]
 
     texts: list[str] = []
     for idx in range(categories_count):
@@ -449,19 +427,21 @@ def _waterfall_overlay_label_texts(meta: dict[str, Any], fmt: str) -> list[str]:
     return texts
 
 
-def _hide_waterfall_overlay_category_labels(meta: dict[str, Any]) -> None:
+def _hide_waterfall_overlay_category_labels(meta: dict[str, object]) -> None:
     """Suppress category labels rendered by add_waterfall_overlays()."""
-    overlay_obj = _to_str_any_dict(meta.get("overlay"))
+    overlay_obj = str_key_dict(meta.get("overlay"))
     if not overlay_obj:
         return
+
     categories_obj = overlay_obj.get("categories")
     if not isinstance(categories_obj, list):
         return
-    overlay_obj["categories"] = ["" for _item in cast(list[object], categories_obj)]
+
+    overlay_obj["categories"] = ["" for _item in object_list(cast(object, categories_obj))]
     meta["overlay"] = overlay_obj
 
 
-def chart_def_to_spec(group: ChartGroup, label_font_size: int = 8) -> dict[str, Any]:
+def chart_def_to_spec(group: ChartGroup, label_font_size: int = 8) -> dict[str, object]:
     """Public alias for converting ``ChartDef`` + refs into chart payload spec."""
     return _chart_def_to_spec(group, label_font_size)
 
@@ -471,7 +451,7 @@ def python_fmt_to_excel_format(fmt: str, values: list[float]) -> str:
     return _python_fmt_to_excel_format(fmt, values)
 
 
-def waterfall_overlay_label_texts(meta: dict[str, Any], fmt: str) -> list[str]:
+def waterfall_overlay_label_texts(meta: dict[str, object], fmt: str) -> list[str]:
     """Public alias for formatted waterfall overlay value labels."""
     return _waterfall_overlay_label_texts(meta, fmt)
 
@@ -798,7 +778,7 @@ def _render_bar_group(
     else:
         plot_layout = _vertical_plot_layout(h, label_font_size_pt, has_labels)
 
-    bar_cfg = _to_str_any_dict(chart_spec.get("bar"))
+    bar_cfg = str_key_dict(chart_spec.get("bar"))
     bar_cfg["plot_layout"] = plot_layout
     chart_spec["bar"] = bar_cfg
 
@@ -817,18 +797,18 @@ def _render_bar_group(
     chart.has_legend = False
     _delete_auto_title(chart)
 
-    series_colors = _to_optional_str_list(style.get("series_colors", []))
+    series_colors = optional_str_list(style.get("series_colors", []))
     charts_module.apply_series_colors(chart, series_colors)
 
     if group.chart_def.colors:
         _apply_point_colors(chart, charts_module, group.chart_def.colors, series_idx=0)
 
-    style_bar = _to_str_any_dict(style.get("bar"))
+    style_bar = str_key_dict(style.get("bar"))
     if style_bar:
         charts_module.apply_bar_chart_style(chart, style_bar)
 
     if has_labels:
-        data_cfg = _to_str_any_dict(chart_spec.get("data_labels"))
+        data_cfg = str_key_dict(chart_spec.get("data_labels"))
         plot = chart.plots[0]
         plot.has_data_labels = True
         charts_module.apply_data_label_style(plot.data_labels, data_cfg)
@@ -882,7 +862,7 @@ def _render_waterfall_group(
     else:
         plot_layout = _vertical_plot_layout(h, label_font_size_pt, has_labels)
 
-    waterfall_cfg = _to_str_any_dict(chart_spec.get("waterfall"))
+    waterfall_cfg = str_key_dict(chart_spec.get("waterfall"))
     waterfall_cfg["plot_layout"] = plot_layout
     chart_spec["waterfall"] = waterfall_cfg
 
@@ -902,11 +882,11 @@ def _render_waterfall_group(
     _delete_auto_title(chart)
 
     # Apply series colors (offset series + value series)
-    series_colors = _to_optional_str_list(style.get("series_colors", []))
+    series_colors = optional_str_list(style.get("series_colors", []))
     charts_module.apply_series_colors(chart, series_colors)
 
     # Apply waterfall-specific styling (offset no-fill, total point colors)
-    wf_meta = _to_str_any_dict(style.get("waterfall", {}))
+    wf_meta = str_key_dict(style.get("waterfall", {}))
     if wf_meta:
         charts_module.apply_waterfall_style(chart, wf_meta)
         charts_module.apply_waterfall_chart_style(chart, wf_meta)
