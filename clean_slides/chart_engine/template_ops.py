@@ -8,11 +8,11 @@ import xml.etree.ElementTree as ET
 import zipfile
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, NamedTuple, cast
+from typing import NamedTuple
 
 from pptx import Presentation
 
-from ..pptx_access import slide_charts
+from ..pptx_access import chart_part_name, slide_charts
 
 
 def read_pptx_part(path: Path, part_name: str) -> bytes:
@@ -69,8 +69,11 @@ def replace_chart_with_template(
         )
 
     template_chart = template_charts[template_chart_index]
-    template_chart_obj = cast(Any, template_chart)
-    template_chart_part = str(template_chart_obj.part.partname).lstrip("/")
+    template_chart_part_name = chart_part_name(template_chart)
+    if template_chart_part_name is None:
+        raise ValueError("Template chart is missing partname")
+
+    template_chart_part = template_chart_part_name.lstrip("/")
     template_chart_rels_part = f"ppt/charts/_rels/{Path(template_chart_part).name}.rels"
 
     template_chart_xml = read_pptx_part(template_path, template_chart_part)
