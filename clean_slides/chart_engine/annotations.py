@@ -52,7 +52,7 @@ def add_text_label(
     height: float,
     align: PP_ALIGN = PP_ALIGN.CENTER,
     color: RGBColor | str | None = _DEFAULT_TEXT_COLOR,
-    font_size: Pt = DEFAULT_WATERFALL_LABEL_FONT_SIZE,
+    font_size: Pt | int | float = DEFAULT_WATERFALL_LABEL_FONT_SIZE,
     fill_color: RGBColor | str | None = None,
     shape_type: MSO_SHAPE | None = None,
     margin_left: int | float | None = None,
