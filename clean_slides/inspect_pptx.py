@@ -8,7 +8,7 @@ Font sizes in points. Returns dataclasses with .to_dict() for serialization.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Protocol, TypedDict, cast
+from typing import Protocol, TypedDict, cast
 
 from lxml import etree
 from pptx.enum.shapes import MSO_SHAPE_TYPE
@@ -24,11 +24,9 @@ from pptx.text.text import TextFrame
 from typing_extensions import TypeGuard
 
 from .pptx_access import chart_xml_space, paragraph_xml_element, text_frame_xml_element
+from .xml_helpers import XmlElement
 
 # ── Helpers ────────────────────────────────────────────────────────────
-
-
-XmlElement = Any
 
 
 def _is_text_shape(shape: BaseShape) -> TypeGuard[PptxShape]:
