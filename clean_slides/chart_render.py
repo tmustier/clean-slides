@@ -7,15 +7,12 @@ logic: grouping adjacent ChartRef cells, computing bounding boxes from the
 table layout, and translating ChartDef into the JSON spec the generator expects.
 """
 
-# pyright: reportUnknownMemberType=false
-# pyright: reportUnknownVariableType=false
-# pyright: reportPrivateUsage=false
-
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, cast
 
+from pptx.oxml.xmlchemy import OxmlElement
 from pptx.slide import Slide
 from pptx.util import Emu, Pt
 
@@ -37,6 +34,18 @@ class ChartGroup:
     max_row: int
     min_col: int
     max_col: int
+
+
+def _to_str_any_dict(value: object) -> dict[str, Any]:
+    """Safely coerce an object to ``dict[str, Any]``."""
+    if not isinstance(value, dict):
+        return {}
+
+    result: dict[str, Any] = {}
+    for key, item in cast(dict[object, object], value).items():
+        if isinstance(key, str):
+            result[key] = item
+    return result
 
 
 def _collect_chart_groups(spec: TableSpec) -> list[ChartGroup]:
@@ -372,8 +381,8 @@ def _waterfall_overlay_label_texts(meta: dict[str, Any], fmt: str) -> list[str]:
     clean-slides format string (e.g. ``{:,.0f}``) so labels can include
     thousands separators and custom affixes.
     """
-    overlay_obj = meta.get("overlay")
-    if not isinstance(overlay_obj, dict):
+    overlay_obj = _to_str_any_dict(meta.get("overlay"))
+    if not overlay_obj:
         return []
 
     categories_obj = overlay_obj.get("categories")
@@ -384,19 +393,31 @@ def _waterfall_overlay_label_texts(meta: dict[str, Any], fmt: str) -> list[str]:
     if not isinstance(categories_obj, list) or not isinstance(cumulative_obj, list):
         return []
 
-    categories_count = len(cast(list[Any], categories_obj))
+    categories = cast(list[object], categories_obj)
+    cumulative_values = cast(list[object], cumulative_obj)
+    categories_count = len(categories)
     cumulative_totals: list[float | None] = [
-        float(v) if isinstance(v, (int, float)) else None for v in cumulative_obj
+        float(value) if isinstance(value, (int, float)) else None for value in cumulative_values
     ]
     delta_values: list[float | None] = []
     if isinstance(delta_obj, list):
-        delta_values = [float(v) if isinstance(v, (int, float)) else None for v in delta_obj]
+        delta_values = [
+            float(value) if isinstance(value, (int, float)) else None
+            for value in cast(list[object], delta_obj)
+        ]
 
     total_categories: set[int] = set()
-    if isinstance(total_categories_obj, (list, set, tuple)):
-        for item in total_categories_obj:
-            if isinstance(item, int):
-                total_categories.add(item)
+    total_category_items: list[object] = []
+    if isinstance(total_categories_obj, list):
+        total_category_items = cast(list[object], total_categories_obj)
+    elif isinstance(total_categories_obj, set):
+        total_category_items = list(cast(set[object], total_categories_obj))
+    elif isinstance(total_categories_obj, tuple):
+        total_category_items = list(cast(tuple[object, ...], total_categories_obj))
+
+    for item in total_category_items:
+        if isinstance(item, int):
+            total_categories.add(item)
 
     texts: list[str] = []
     for idx in range(categories_count):
@@ -418,13 +439,14 @@ def _waterfall_overlay_label_texts(meta: dict[str, Any], fmt: str) -> list[str]:
 
 def _hide_waterfall_overlay_category_labels(meta: dict[str, Any]) -> None:
     """Suppress category labels rendered by add_waterfall_overlays()."""
-    overlay_obj = meta.get("overlay")
-    if not isinstance(overlay_obj, dict):
+    overlay_obj = _to_str_any_dict(meta.get("overlay"))
+    if not overlay_obj:
         return
     categories_obj = overlay_obj.get("categories")
     if not isinstance(categories_obj, list):
         return
-    overlay_obj["categories"] = ["" for _ in categories_obj]
+    overlay_obj["categories"] = ["" for _item in cast(list[object], categories_obj)]
+    meta["overlay"] = overlay_obj
 
 
 def _rewrite_overlay_value_label_texts(
@@ -465,17 +487,17 @@ def _set_label_nowrap(chart: Any) -> None:
     like ``4.0x`` across multiple lines when the default label text box
     is narrower than the formatted string.
     """
-    from lxml import etree
 
     ns_a = "http://schemas.openxmlformats.org/drawingml/2006/main"
     ns_c = "http://schemas.openxmlformats.org/drawingml/2006/chart"
-    chart_el: etree._Element = chart._element
+    chart_el = chart._element
     for dlbls in chart_el.iter(f"{{{ns_c}}}dLbls"):
-        txPr = dlbls.find(f"{{{ns_c}}}txPr")
-        if txPr is not None:
-            bodyPr = txPr.find(f"{{{ns_a}}}bodyPr")
-            if bodyPr is not None:
-                bodyPr.set("wrap", "none")
+        tx_pr = dlbls.find(f"{{{ns_c}}}txPr")
+        if tx_pr is None:
+            continue
+        body_pr = tx_pr.find(f"{{{ns_a}}}bodyPr")
+        if body_pr is not None:
+            body_pr.set("wrap", "none")
 
 
 # Visual gap between bar tip and label left edge, as a fraction of chart width.
@@ -504,11 +526,8 @@ def _set_horizontal_label_offsets(
     regardless of bar length.
     """
     from lxml import etree
-    from pptx.oxml.xmlchemy import (
-        OxmlElement,  # pyright: ignore[reportUnknownVariableType,reportAttributeAccessIssue]
-    )
 
-    chart_el: etree._Element = chart._element
+    chart_el = chart._element
     ns_c = "http://schemas.openxmlformats.org/drawingml/2006/chart"
 
     # The OOXML structure is:
@@ -529,15 +548,15 @@ def _set_horizontal_label_offsets(
     if ser_dlbls is None:
         ser_dlbls_el = OxmlElement("c:dLbls")
         # Insert before cat/val
-        insert_before: etree._Element | None = None
+        insert_before: Any | None = None
         for tag_suffix in ("cat", "val", "shape", "extLst"):
             insert_before = ser.find(f"{{{ns_c}}}{tag_suffix}")
             if insert_before is not None:
                 break
         if insert_before is not None:
-            insert_before.addprevious(cast(etree._Element, ser_dlbls_el))
+            insert_before.addprevious(ser_dlbls_el)
         else:
-            ser.append(cast(etree._Element, ser_dlbls_el))
+            ser.append(ser_dlbls_el)
         ser_dlbls = ser.find(f"{{{ns_c}}}dLbls")
         assert ser_dlbls is not None
 
@@ -616,7 +635,7 @@ def _set_horizontal_label_offsets(
             el.set("val", val)
             dlbl.append(el)
 
-        ser_dlbls.insert(i, cast(etree._Element, dlbl))
+        ser_dlbls.insert(i, dlbl)
 
     # Add shared settings to ser-level dLbls (after per-point labels)
     for tag_name, val in [
@@ -629,15 +648,13 @@ def _set_horizontal_label_offsets(
     ]:
         shared_el = OxmlElement(f"c:{tag_name}")
         shared_el.set("val", val)
-        ser_dlbls.append(cast(etree._Element, shared_el))
+        ser_dlbls.append(shared_el)
 
 
 def _delete_auto_title(chart: Any) -> None:
     """Suppress the auto-generated chart title (series name watermark)."""
-    from lxml import etree
-
     ns_c = "http://schemas.openxmlformats.org/drawingml/2006/chart"
-    chart_el: etree._Element = chart._element
+    chart_el = chart._element
     ns = {"c": ns_c}
     auto_title = chart_el.find(".//c:autoTitleDeleted", ns)
     if auto_title is not None:
@@ -742,7 +759,7 @@ def _render_bar_group(
     chart_spec = _chart_def_to_spec(group, label_font_size=label_font_size_pt)
 
     # Compute direction-aware plot layout
-    has_labels = chart_spec.get("show_data_labels", False)
+    has_labels = bool(chart_spec.get("show_data_labels", False))
     if group.chart_def.dir == "horizontal":
         plot_layout = _horizontal_plot_layout(
             w,
@@ -753,35 +770,44 @@ def _render_bar_group(
         )
     else:
         plot_layout = _vertical_plot_layout(h, label_font_size_pt, has_labels)
-    chart_spec["bar"]["plot_layout"] = plot_layout
+
+    bar_cfg = _to_str_any_dict(chart_spec.get("bar"))
+    bar_cfg["plot_layout"] = plot_layout
+    chart_spec["bar"] = bar_cfg
 
     chart_type, chart_data, style = charts_module.build_bar_payload(chart_spec)
 
-    chart_frame = slide.shapes.add_chart(chart_type, Emu(x), Emu(y), Emu(w), Emu(h), chart_data)
+    chart_frame = cast(Any, slide.shapes).add_chart(
+        chart_type,
+        Emu(x),
+        Emu(y),
+        Emu(w),
+        Emu(h),
+        chart_data,
+    )
     chart = chart_frame.chart
 
     chart.has_legend = False
     _delete_auto_title(chart)
 
-    charts_module.apply_series_colors(chart, style.get("series_colors", []))
+    series_colors = cast(list[str | None], style.get("series_colors", []))
+    charts_module.apply_series_colors(chart, series_colors)
 
     if group.chart_def.colors:
         _apply_point_colors(chart, charts_module, group.chart_def.colors, series_idx=0)
 
-    if style.get("bar"):
-        charts_module.apply_bar_chart_style(chart, style["bar"])
+    style_bar = _to_str_any_dict(style.get("bar"))
+    if style_bar:
+        charts_module.apply_bar_chart_style(chart, style_bar)
 
-    if chart_spec.get("show_data_labels", False):
-        data_cfg_obj = chart_spec.get("data_labels")
-        data_cfg: dict[str, Any] = data_cfg_obj if isinstance(data_cfg_obj, dict) else {}
+    if has_labels:
+        data_cfg = _to_str_any_dict(chart_spec.get("data_labels"))
         plot = chart.plots[0]
         plot.has_data_labels = True
         charts_module.apply_data_label_style(plot.data_labels, data_cfg)
         _set_label_nowrap(chart)
 
         if group.chart_def.dir == "horizontal":
-            bar_obj = chart_spec.get("bar")
-            bar_cfg: dict[str, Any] = bar_obj if isinstance(bar_obj, dict) else {}
             axis_max_obj = bar_cfg.get("axis_max")
             axis_max = (
                 float(axis_max_obj)
@@ -816,7 +842,7 @@ def _render_waterfall_group(
 
     # Compute plot layout — waterfall labels use center positioning,
     # so reserve space at the right for the largest bar label.
-    has_labels = chart_spec.get("show_data_labels", False)
+    has_labels = bool(chart_spec.get("show_data_labels", False))
     values = _sorted_values(group)
     if group.chart_def.dir == "horizontal":
         plot_layout = _horizontal_plot_layout(
@@ -828,22 +854,32 @@ def _render_waterfall_group(
         )
     else:
         plot_layout = _vertical_plot_layout(h, label_font_size_pt, has_labels)
-    chart_spec["waterfall"]["plot_layout"] = plot_layout
+
+    waterfall_cfg = _to_str_any_dict(chart_spec.get("waterfall"))
+    waterfall_cfg["plot_layout"] = plot_layout
+    chart_spec["waterfall"] = waterfall_cfg
 
     chart_type, chart_data, style = charts_module.build_waterfall_payload(chart_spec)
 
-    chart_frame = slide.shapes.add_chart(chart_type, Emu(x), Emu(y), Emu(w), Emu(h), chart_data)
+    chart_frame = cast(Any, slide.shapes).add_chart(
+        chart_type,
+        Emu(x),
+        Emu(y),
+        Emu(w),
+        Emu(h),
+        chart_data,
+    )
     chart = chart_frame.chart
 
     chart.has_legend = False
     _delete_auto_title(chart)
 
     # Apply series colors (offset series + value series)
-    charts_module.apply_series_colors(chart, style.get("series_colors", []))
+    series_colors = cast(list[str | None], style.get("series_colors", []))
+    charts_module.apply_series_colors(chart, series_colors)
 
     # Apply waterfall-specific styling (offset no-fill, total point colors)
-    wf_meta_obj = style.get("waterfall", {})
-    wf_meta: dict[str, Any] = wf_meta_obj if isinstance(wf_meta_obj, dict) else {}
+    wf_meta = _to_str_any_dict(style.get("waterfall", {}))
     if wf_meta:
         charts_module.apply_waterfall_style(chart, wf_meta)
         charts_module.apply_waterfall_chart_style(chart, wf_meta)
@@ -851,9 +887,9 @@ def _render_waterfall_group(
     if group.chart_def.colors:
         offset_idx_obj = wf_meta.get("offset_series_idx")
         offset_idx = offset_idx_obj if isinstance(offset_idx_obj, int) else 0
-        series_count = len(cast(list[Any], chart.series))
+        series = cast(list[Any], chart.series)
         target_idx: int | None = None
-        for idx in range(series_count):
+        for idx in range(len(series)):
             if idx != offset_idx:
                 target_idx = idx
                 break
@@ -863,7 +899,7 @@ def _render_waterfall_group(
     # Add connector lines and overlay labels as separate shapes on the slide.
     # This handles both incremental and total bar labels, plus connectors.
     # We do NOT use built-in chart data labels — overlays give full control.
-    if chart_spec.get("show_data_labels", False) and wf_meta:
+    if has_labels and wf_meta:
         # Cell tables already provide row labels, so hide overlay category labels.
         _hide_waterfall_overlay_category_labels(wf_meta)
 
