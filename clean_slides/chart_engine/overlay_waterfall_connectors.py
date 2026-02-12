@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any, Union, cast
+from typing import Protocol, Union, cast
 
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
@@ -15,6 +15,44 @@ Number = Union[int, float]
 FloatOrNone = Union[float, None]
 ColorValue = Union[RGBColor, str, None]
 Geometry = Mapping[str, object]
+
+
+class _ShapeForeColorLike(Protocol):
+    rgb: object
+
+
+class _ShapeFillLike(Protocol):
+    fore_color: _ShapeForeColorLike
+
+    def solid(self) -> None: ...
+
+
+class _ShapeLineFillLike(Protocol):
+    def background(self) -> None: ...
+
+
+class _ShapeLineLike(Protocol):
+    fill: _ShapeLineFillLike
+
+
+class _ShapeLike(Protocol):
+    fill: _ShapeFillLike
+    line: _ShapeLineLike
+
+
+class _SlideShapesLike(Protocol):
+    def add_shape(
+        self,
+        shape_type: object,
+        left: object,
+        top: object,
+        width: object,
+        height: object,
+    ) -> _ShapeLike: ...
+
+
+class _SlideLike(Protocol):
+    shapes: _SlideShapesLike
 
 
 def _geometry_series(geometry: Geometry, key: str) -> list[float]:
@@ -40,7 +78,7 @@ def _connector_value(values: Sequence[FloatOrNone], idx: int) -> FloatOrNone:
 
 
 def render_waterfall_connectors(
-    slide: Any,
+    slide: object,
     categories: Sequence[object],
     connector_values: Sequence[FloatOrNone],
     geometry: Geometry,
@@ -60,11 +98,12 @@ def render_waterfall_connectors(
     connector_color: ColorValue,
 ) -> None:
     """Render connector segments between adjacent waterfall categories."""
+    slide_like = cast(_SlideLike, slide)
 
     def add_dash_segment(x: float, y: float, width: float, height: float) -> None:
         if width <= 0 or height <= 0:
             return
-        shape = slide.shapes.add_shape(
+        shape = slide_like.shapes.add_shape(
             MSO_SHAPE.RECTANGLE,
             round(x),
             round(y),

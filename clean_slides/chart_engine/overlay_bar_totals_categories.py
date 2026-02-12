@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Callable, Union, cast
+from typing import Callable, Union, cast
 
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
@@ -66,7 +66,7 @@ def _bar_center(geometry: Geometry, idx: int) -> FloatOrNone:
 
 
 def add_bar_total_labels(
-    slide: Any,
+    slide: object,
     *,
     overlay: Mapping[str, object],
     totals: Sequence[FloatOrNone],
@@ -176,7 +176,7 @@ def add_bar_total_labels(
 
 
 def add_bar_category_labels(
-    slide: Any,
+    slide: object,
     *,
     overlay: Mapping[str, object],
     categories: Sequence[object],

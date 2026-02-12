@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Callable, Union, cast
+from typing import Callable, Union, cast
 
 from pptx.dml.color import RGBColor
 
@@ -108,7 +108,7 @@ def _coerce_fill_color(fill_value: object, series_color: StrOrNone) -> ColorValu
 
 
 def add_bar_segment_labels(
-    slide: Any,
+    slide: object,
     *,
     overlay: OverlaySpec,
     categories: Sequence[object],

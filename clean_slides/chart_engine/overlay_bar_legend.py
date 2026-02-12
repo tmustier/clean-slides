@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Callable, Union, cast
+from typing import Callable, Protocol, Union, cast
 
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
@@ -22,6 +22,46 @@ StrOrNone = Union[str, None]
 ColorValue = Union[RGBColor, str, None]
 TemplateMap = Mapping[str, object]
 LegendGeometry = Mapping[str, float]
+
+
+class _ShapeForeColorLike(Protocol):
+    theme_color: object
+    rgb: object
+
+
+class _ShapeFillLike(Protocol):
+    fore_color: _ShapeForeColorLike
+
+    def solid(self) -> None: ...
+
+
+class _ShapeLineFillLike(Protocol):
+    def background(self) -> None: ...
+
+
+class _ShapeLineLike(Protocol):
+    fill: _ShapeLineFillLike
+
+
+class _ShapeLike(Protocol):
+    fill: _ShapeFillLike
+    line: _ShapeLineLike
+
+
+class _SlideShapesLike(Protocol):
+    def add_shape(
+        self,
+        shape_type: object,
+        left: object,
+        top: object,
+        width: object,
+        height: object,
+    ) -> _ShapeLike: ...
+
+
+class _SlideLike(Protocol):
+    shapes: _SlideShapesLike
+
 
 AddTextLabelFn = Callable[..., object]
 ResolveTemplateFn = Callable[[PathOrNone, str, object], object]
@@ -54,7 +94,7 @@ def _bool(value: object, default: bool) -> bool:
 
 
 def add_bar_legend(
-    slide: Any,
+    slide: object,
     *,
     overlay: Mapping[str, object],
     chart_box: tuple[int, int, int, int],
@@ -78,6 +118,8 @@ def add_bar_legend(
     templates: TemplateMap,
 ) -> None:
     """Render legend labels and optional color markers."""
+    slide_like = cast(_SlideLike, slide)
+
     legend_layout = _optional_str(overlay.get("legend_layout"))
     legend_align = normalize_alignment(_optional_str(overlay.get("legend_alignment")))
     legend_show_markers = _bool(overlay.get("legend_show_markers", True), True)
@@ -162,7 +204,7 @@ def add_bar_legend(
         if legend_show_markers and series_color:
             marker_x = plot_left + plot_width * (marker_left_ratio + marker_step_ratio * idx)
             marker_y = legend_y + marker_y_offset
-            shape = slide.shapes.add_shape(
+            shape = slide_like.shapes.add_shape(
                 MSO_SHAPE.RECTANGLE,
                 int(marker_x),
                 int(marker_y),
