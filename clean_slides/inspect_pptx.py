@@ -5,12 +5,10 @@ All positions in inches (4 decimal places). Colors as hex RGB + theme name.
 Font sizes in points. Returns dataclasses with .to_dict() for serialization.
 """
 
-# pyright: reportPrivateUsage=false
-
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Protocol, TypedDict
+from typing import Any, Protocol, TypedDict, cast
 
 from lxml import etree
 from pptx.enum.shapes import MSO_SHAPE_TYPE
@@ -27,6 +25,9 @@ from pptx.text.text import TextFrame
 from typing_extensions import TypeGuard
 
 # ── Helpers ────────────────────────────────────────────────────────────
+
+
+XmlElement = Any
 
 
 def _is_text_shape(shape: BaseShape) -> TypeGuard[PptxShape]:
@@ -51,7 +52,7 @@ def _pt_to_float(pt_val: int | None) -> float | None:
     return round(int(pt_val) / 12700, 1)
 
 
-def _resolve_rPr_color(rPr: etree._Element | None) -> tuple[str | None, str | None]:
+def _resolve_rPr_color(rPr: XmlElement | None) -> tuple[str | None, str | None]:
     """Extract color from an a:rPr XML element directly."""
     if rPr is None:
         return None, None
@@ -69,7 +70,7 @@ def _resolve_rPr_color(rPr: etree._Element | None) -> tuple[str | None, str | No
     return None, None
 
 
-def _get_fill_info(element: etree._Element) -> FillInfo:
+def _get_fill_info(element: XmlElement) -> FillInfo:
     """Extract fill information from an spPr-containing element."""
     for ns in ["p", "a"]:
         spPr = element.find(qn(f"{ns}:spPr"))
@@ -78,7 +79,7 @@ def _get_fill_info(element: etree._Element) -> FillInfo:
     return FillInfo()
 
 
-def _parse_spPr_fill(spPr: etree._Element | None) -> FillInfo:
+def _parse_spPr_fill(spPr: XmlElement | None) -> FillInfo:
     """Parse fill from an spPr element."""
     if spPr is None:
         return FillInfo()
@@ -105,7 +106,7 @@ def _parse_spPr_fill(spPr: etree._Element | None) -> FillInfo:
     return FillInfo(type="inherited")
 
 
-def _get_line_info(element: etree._Element) -> LineInfo:
+def _get_line_info(element: XmlElement) -> LineInfo:
     """Extract line/outline info from an spPr-containing element."""
     for ns in ["p", "a"]:
         spPr = element.find(qn(f"{ns}:spPr"))
@@ -116,7 +117,7 @@ def _get_line_info(element: etree._Element) -> LineInfo:
     return LineInfo()
 
 
-def _parse_ln(ln: etree._Element) -> LineInfo:
+def _parse_ln(ln: XmlElement) -> LineInfo:
     """Parse line properties from an a:ln element."""
     width = ln.get("w")
     width_pt = round(int(width) / 12700, 1) if width else None
@@ -221,6 +222,14 @@ class _ChartFrameLike(Protocol):
 
     @property
     def chart(self) -> _ChartLike: ...
+
+
+def _chart_space(chart: _ChartLike) -> CT_ChartSpace:
+    return cast(CT_ChartSpace, object.__getattribute__(chart, "_chartSpace"))
+
+
+def _paragraph_xml(paragraph: _ParagraphLike) -> XmlElement:
+    return object.__getattribute__(paragraph, "_element")
 
 
 # ── Data classes ───────────────────────────────────────────────────────
@@ -846,7 +855,7 @@ def inspect_chart(shape: BaseShape) -> ChartInfo:
         raise ValueError("Shape is not a chart")
 
     chart = shape.chart
-    cs = chart._chartSpace
+    cs = _chart_space(chart)
 
     chart_el = cs.find(qn("c:chart"))
     if chart_el is None:
@@ -867,7 +876,7 @@ def inspect_chart(shape: BaseShape) -> ChartInfo:
         "doughnutChart": "doughnut",
     }
     chart_type = "unknown"
-    chart_type_el: etree._Element | None = None
+    chart_type_el: XmlElement | None = None
     for local_name, friendly in chart_type_map.items():
         el = plotArea.find(qn(f"c:{local_name}"))
         if el is not None:
@@ -1198,7 +1207,8 @@ def _parse_paragraph(p: _ParagraphLike) -> ParagraphInfo:
 
     # Bullet character
     bullet_char = None
-    pPr = p._element.find(qn("a:pPr"))
+    paragraph_el = _paragraph_xml(p)
+    pPr = paragraph_el.find(qn("a:pPr"))
     if pPr is not None:
         buChar = pPr.find(qn("a:buChar"))
         if buChar is not None:
@@ -1234,7 +1244,7 @@ def _parse_paragraph(p: _ParagraphLike) -> ParagraphInfo:
 
     # Parse runs (including line breaks as runs with text="\n")
     runs: list[RunInfo] = []
-    for child in p._element:
+    for child in paragraph_el:
         tag = child.tag.split("}")[-1]
         if tag == "r":
             runs.append(_parse_run_element(child))
@@ -1252,7 +1262,7 @@ def _parse_paragraph(p: _ParagraphLike) -> ParagraphInfo:
     )
 
 
-def _parse_run_element(r_el: etree._Element) -> RunInfo:
+def _parse_run_element(r_el: XmlElement) -> RunInfo:
     """Parse an a:r element into RunInfo."""
     # Text
     t = r_el.find(qn("a:t"))
