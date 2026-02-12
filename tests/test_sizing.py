@@ -1,5 +1,3 @@
-# pyright: reportPrivateUsage=false
-
 from __future__ import annotations
 
 import unittest
@@ -89,7 +87,7 @@ class TestColumnSizer(unittest.TestCase):
 
         label_w = int(
             metrics.text_width_no_wrap("CAGR", Fonts.HEADLINE, FONTS.header_size_pt)
-            * ColumnSizer._BOLD_FACTOR
+            * float(getattr(ColumnSizer, "_BOLD_FACTOR"))
         )
         sub_w = metrics.text_width_no_wrap("%, FY26-33E", Fonts.HEADLINE, FONTS.header_size_pt)
         expected_min = int(max(label_w, sub_w) * 1.10) + PAD * 4
@@ -123,7 +121,7 @@ class TestColumnSizer(unittest.TestCase):
         area = ContentArea.from_layout("default")
         sizer = ColumnSizer()
 
-        mins = sizer._min_widths(spec, area.width, metrics, FONTS, warnings=[])
+        mins = getattr(sizer, "_min_widths")(spec, area.width, metrics, FONTS, warnings=[])
         pads = column_right_pads(spec.num_cols + 1, PAD, spec.has_row_header)
         min_row_header_with_pad = mins[0] + pads[0]
 
@@ -162,8 +160,8 @@ class TestColumnSizer(unittest.TestCase):
         metrics = TextMetrics()
         sizer = ColumnSizer()
 
-        pref_base = sizer._row_header_preferred_width(base_spec, metrics, FONTS)
-        pref_with_super = sizer._row_header_preferred_width(with_super, metrics, FONTS)
+        pref_base = getattr(sizer, "_row_header_preferred_width")(base_spec, metrics, FONTS)
+        pref_with_super = getattr(sizer, "_row_header_preferred_width")(with_super, metrics, FONTS)
 
         self.assertEqual(pref_with_super, pref_base)
 
@@ -194,7 +192,7 @@ class TestRowSizer(unittest.TestCase):
         target = 4301632
         min_h = int(TableDefaults.MIN_ROW_HEIGHT)
 
-        RowSizer._rebalance_body_heights(body, target, min_h)
+        getattr(RowSizer, "_rebalance_body_heights")(body, target, min_h)
 
         self.assertEqual(sum(body), target)
         self.assertGreaterEqual(min(body), min_h)
@@ -208,7 +206,7 @@ class TestRowSizer(unittest.TestCase):
         target = 900000
         min_h = int(TableDefaults.MIN_ROW_HEIGHT)
 
-        RowSizer._rebalance_body_heights(body, target, min_h)
+        getattr(RowSizer, "_rebalance_body_heights")(body, target, min_h)
 
         self.assertEqual(sum(body), target)
         self.assertLessEqual(max(body) - min(body), 1)
@@ -236,7 +234,7 @@ class TestRowSizer(unittest.TestCase):
         required = [200000, 500000]
         text_widths = [300000, 300000, 300000]
 
-        RowSizer._inflate_grouped_header_requirements(
+        getattr(RowSizer, "_inflate_grouped_header_requirements")(
             spec,
             required,
             text_widths,
@@ -266,7 +264,7 @@ class TestSolverFontResolution(unittest.TestCase):
         )
         solver = ConstraintSolver(TextMetrics())
 
-        fonts = solver._resolve_fonts(
+        fonts = getattr(solver, "_resolve_fonts")(
             spec,
             SolveOptions(body_font_pt=12, header_font_pt=16),
         )
@@ -289,7 +287,7 @@ class TestSolverFontResolution(unittest.TestCase):
         )
         solver = ConstraintSolver(TextMetrics())
 
-        fonts = solver._resolve_fonts(
+        fonts = getattr(solver, "_resolve_fonts")(
             spec,
             SolveOptions(body_font_pt=12, header_font_pt=16),
         )
