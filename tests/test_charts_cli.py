@@ -99,6 +99,8 @@ class _FakeEngine:
         self.raw_spec = raw_spec
         self.built_specs: list[dict[str, object]] = []
         self.template_paths: list[Path | None] = []
+        self.save_flags: list[bool] = []
+        self.defer_template_copy_flags: list[bool] = []
 
     def load_spec(self, path: Path) -> object:
         return self.raw_spec
@@ -154,6 +156,8 @@ class _FakeEngine:
     ) -> list[object]:
         self.built_specs.append(copy.deepcopy(spec))
         self.template_paths.append(template_path)
+        self.save_flags.append(save)
+        self.defer_template_copy_flags.append(defer_template_copy)
         return []
 
     def apply_chart_template_replacements(
@@ -240,6 +244,27 @@ def test_generate_charts_from_json_sets_base_dir_for_each_chart(tmp_path: Path) 
     assert all(spec.get("_base_dir") == expected_base_dir for spec in fake_engine.built_specs)
     assert fake_engine.built_specs[1].get("append_slide") is True
     assert output_path.exists()
+
+
+def test_generate_charts_from_json_defers_template_copy_in_builder_calls(tmp_path: Path) -> None:
+    spec_path = tmp_path / "specs" / "charts.json"
+    spec_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path = tmp_path / "out-defer.pptx"
+
+    raw_spec = {
+        "charts": [
+            _simple_chart_spec(1),
+            _simple_chart_spec(2),
+        ],
+    }
+    _write_json(spec_path, raw_spec)
+
+    fake_engine = _FakeEngine(raw_spec)
+    with patch("clean_slides.charts.load_chart_engine", return_value=fake_engine):
+        generate_charts_from_json(spec_path, output_path)
+
+    assert fake_engine.save_flags == [False, False]
+    assert fake_engine.defer_template_copy_flags == [True, True]
 
 
 def test_generate_charts_from_json_resolves_relative_deck_template(tmp_path: Path) -> None:
