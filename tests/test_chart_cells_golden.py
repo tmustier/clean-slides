@@ -148,6 +148,38 @@ table:
     assert x_offsets[1] > x_offsets[0]
 
 
+def test_horizontal_chart_cells_zero_decimal_python_format_maps_to_excel_numeric(
+    tmp_path: Path,
+) -> None:
+    """Regression: ``{:.0f}`` stays integer in chart-cell data labels."""
+    yaml_text = """
+title: Horizontal zero-decimal format regression
+charts:
+  rev:
+    dir: horizontal
+    values: [1.2, 2.8]
+    format: "{:.0f}"
+    color: accent1
+
+table:
+  rows: 2
+  cols: 1
+  has_col_header: false
+  cells:
+    - [rev-1]
+    - [rev-2]
+"""
+
+    output_path = _run_generate(tmp_path, "horizontal-zero-decimal-regression", yaml_text)
+
+    chart_xml = _chart_xml(output_path)
+    num_formats = chart_xml.xpath(
+        ".//c:barChart/c:ser/c:dLbls/c:dLbl/c:numFmt/@formatCode",
+        namespaces=_NS,
+    )
+    assert num_formats == ["0", "0"]
+
+
 def test_waterfall_chart_cells_keep_connectors_and_formatted_labels(tmp_path: Path) -> None:
     """Regression: waterfall chart-cells keep overlays + connector lines."""
     yaml_text = """
@@ -180,5 +212,8 @@ table:
     texts = _non_placeholder_texts(output_path)
     expected_labels = {"954", "13", "-45", "1,209"}
     assert expected_labels.issubset(set(texts))
+
+    # Category labels are intentionally suppressed for chart-cells.
+    assert {"1", "2", "3", "4"}.isdisjoint(set(texts))
 
     assert _connector_count(output_path) >= 3
