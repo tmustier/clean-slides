@@ -199,6 +199,30 @@ class ColumnSizer:
 
         return widths, warnings
 
+    def min_widths(
+        self,
+        spec: TableSpec,
+        area_width: int,
+        metrics: TextMetrics,
+        fonts: FontConfig,
+    ) -> list[int]:
+        """Return computed minimum widths without mutating caller state.
+
+        Public diagnostic hook used by tests to assert sizing invariants
+        without reaching into protected members.
+        """
+        warnings: list[SizingWarning] = []
+        return self._min_widths(spec, area_width, metrics, fonts, warnings)
+
+    def row_header_preferred_width(
+        self,
+        spec: TableSpec,
+        metrics: TextMetrics,
+        fonts: FontConfig,
+    ) -> int:
+        """Return preferred no-wrap width for the row-header column."""
+        return self._row_header_preferred_width(spec, metrics, fonts)
+
     # -- helpers --
 
     @staticmethod
@@ -404,6 +428,7 @@ class ColumnSizer:
     # model weight, so we apply a fudge factor for bold columns
     # (row headers, superheaders).
     _BOLD_FACTOR: float = 1.10
+    BOLD_FACTOR: float = _BOLD_FACTOR
 
     def _row_header_preferred_width(
         self,
@@ -997,6 +1022,32 @@ class RowSizer:
             )
 
         return heights, warnings
+
+    @staticmethod
+    def rebalance_body_heights(body_heights: list[int], target_total: int, min_h: int) -> None:
+        """Public wrapper around body-height balancing logic."""
+        RowSizer._rebalance_body_heights(body_heights, target_total, min_h)
+
+    @staticmethod
+    def inflate_grouped_header_requirements(
+        spec: TableSpec,
+        required_body: list[int],
+        text_widths: list[int],
+        metrics: TextMetrics,
+        fonts: FontConfig,
+        pt: int,
+        pb: int,
+    ) -> None:
+        """Public wrapper around grouped-header inflation logic."""
+        RowSizer._inflate_grouped_header_requirements(
+            spec,
+            required_body,
+            text_widths,
+            metrics,
+            fonts,
+            pt,
+            pb,
+        )
 
     # -- helpers --
 
