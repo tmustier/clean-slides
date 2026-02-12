@@ -1,43 +1,71 @@
 """Legend overlay helpers for bar charts."""
 
-# pyright: reportUnknownMemberType=false
-# pyright: reportUnknownParameterType=false
-# pyright: reportUnknownVariableType=false
-# pyright: reportUnknownArgumentType=false
-# pyright: reportMissingParameterType=false
-# pyright: reportMissingTypeArgument=false
-# pyright: reportGeneralTypeIssues=false
-# pyright: reportArgumentType=false
-# pyright: reportCallIssue=false
-# pyright: reportAttributeAccessIssue=false
-
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any, Callable, Union, cast
 
+from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import PP_ALIGN
-from pptx.oxml.xmlchemy import OxmlElement
+from pptx.util import Pt
 
-from .annotations import add_text_label
+from . import annotations as _annotations
+from . import text_templates as _text_templates
 from .colors import resolve_color
 from .text_style import normalize_alignment
-from .text_templates import resolve_txbody_template
+
+Number = Union[int, float]
+PathOrNone = Union[Path, None]
+StrOrNone = Union[str, None]
+ColorValue = Union[RGBColor, str, None]
+TemplateMap = Mapping[str, object]
+LegendGeometry = Mapping[str, float]
+
+AddTextLabelFn = Callable[..., object]
+ResolveTemplateFn = Callable[[PathOrNone, str, object], object]
+
+
+def _require_attr(module: object, name: str) -> object:
+    value = getattr(module, name, None)
+    if value is None:
+        raise AttributeError(f"{module!r} does not expose {name}")
+    return value
+
+
+add_text_label = cast(AddTextLabelFn, _require_attr(_annotations, "add_text_label"))
+resolve_txbody_template = cast(
+    ResolveTemplateFn,
+    _require_attr(_text_templates, "resolve_txbody_template"),
+)
+
+
+def _number(value: object, default: Number = 0) -> Number:
+    return value if isinstance(value, (int, float)) else default
+
+
+def _optional_str(value: object) -> StrOrNone:
+    return value if isinstance(value, str) else None
+
+
+def _bool(value: object, default: bool) -> bool:
+    return value if isinstance(value, bool) else default
 
 
 def add_bar_legend(
-    slide,
+    slide: Any,
     *,
-    overlay: dict,
-    chart_box: tuple,
+    overlay: Mapping[str, object],
+    chart_box: tuple[int, int, int, int],
     plot_bottom: float,
-    geometry: dict,
-    series_names: list[str],
-    series_colors: list[str | None],
+    geometry: LegendGeometry,
+    series_names: Sequence[str],
+    series_colors: Sequence[StrOrNone],
     legend_width: int,
     legend_height: int,
-    legend_font: int,
-    legend_color,
+    legend_font: Union[Pt, int, float],
+    legend_color: ColorValue,
     legend_offset: int,
     legend_left_ratio: float,
     legend_step_ratio: float,
@@ -46,18 +74,25 @@ def add_bar_legend(
     marker_width: int,
     marker_height: int,
     marker_y_offset: int,
-    template_path: Path | None,
-    templates: dict[str, OxmlElement | None],
+    template_path: PathOrNone,
+    templates: TemplateMap,
 ) -> None:
     """Render legend labels and optional color markers."""
-    legend_layout = overlay.get("legend_layout")
-    legend_align = normalize_alignment(overlay.get("legend_alignment"))
-    legend_show_markers = overlay.get("legend_show_markers", True)
+    legend_layout = _optional_str(overlay.get("legend_layout"))
+    legend_align = normalize_alignment(_optional_str(overlay.get("legend_alignment")))
+    legend_show_markers = _bool(overlay.get("legend_show_markers", True), True)
+
+    margin_left = _number(overlay.get("legend_label_margin_left", 0), 0)
+    margin_right = _number(overlay.get("legend_label_margin_right", 0), 0)
+    margin_top = _number(overlay.get("legend_label_margin_top", 0), 0)
+    margin_bottom = _number(overlay.get("legend_label_margin_bottom", 0), 0)
+    vertical_anchor = _optional_str(overlay.get("legend_label_anchor")) or "center"
+    bw_mode = _optional_str(overlay.get("legend_label_bw_mode")) or "auto"
 
     if legend_layout == "left":
-        legend_left_offset = overlay.get("legend_left_offset", 0)
-        legend_top_offset = overlay.get("legend_top_offset", 0)
-        legend_step = overlay.get("legend_step", legend_height)
+        legend_left_offset = _number(overlay.get("legend_left_offset", 0), 0)
+        legend_top_offset = _number(overlay.get("legend_top_offset", 0), 0)
+        legend_step = _number(overlay.get("legend_step", legend_height), legend_height)
         legend_x = chart_box[0] + legend_left_offset
         legend_y = plot_bottom + legend_top_offset
         if legend_align is None:
@@ -76,12 +111,12 @@ def add_bar_legend(
                 align=legend_align,
                 font_size=legend_font,
                 color=legend_color,
-                margin_left=overlay.get("legend_label_margin_left", 0),
-                margin_right=overlay.get("legend_label_margin_right", 0),
-                margin_top=overlay.get("legend_label_margin_top", 0),
-                margin_bottom=overlay.get("legend_label_margin_bottom", 0),
-                vertical_anchor=overlay.get("legend_label_anchor", "center"),
-                bw_mode=overlay.get("legend_label_bw_mode", "auto"),
+                margin_left=margin_left,
+                margin_right=margin_right,
+                margin_top=margin_top,
+                margin_bottom=margin_bottom,
+                vertical_anchor=vertical_anchor,
+                bw_mode=bw_mode,
                 txbody_template=resolve_txbody_template(
                     template_path,
                     text,
@@ -94,11 +129,12 @@ def add_bar_legend(
     if legend_align is None:
         legend_align = PP_ALIGN.LEFT
 
+    plot_left = geometry["plot_left"]
+    plot_width = geometry["plot_width"]
+
     for idx, name in enumerate(series_names):
         text = str(name)
-        x = geometry["plot_left"] + geometry["plot_width"] * (
-            legend_left_ratio + legend_step_ratio * idx
-        )
+        x = plot_left + plot_width * (legend_left_ratio + legend_step_ratio * idx)
         add_text_label(
             slide,
             text,
@@ -109,12 +145,12 @@ def add_bar_legend(
             align=legend_align,
             font_size=legend_font,
             color=legend_color,
-            margin_left=overlay.get("legend_label_margin_left", 0),
-            margin_right=overlay.get("legend_label_margin_right", 0),
-            margin_top=overlay.get("legend_label_margin_top", 0),
-            margin_bottom=overlay.get("legend_label_margin_bottom", 0),
-            vertical_anchor=overlay.get("legend_label_anchor", "center"),
-            bw_mode=overlay.get("legend_label_bw_mode", "auto"),
+            margin_left=margin_left,
+            margin_right=margin_right,
+            margin_top=margin_top,
+            margin_bottom=margin_bottom,
+            vertical_anchor=vertical_anchor,
+            bw_mode=bw_mode,
             txbody_template=resolve_txbody_template(
                 template_path,
                 text,
@@ -122,10 +158,9 @@ def add_bar_legend(
             ),
         )
 
-        if legend_show_markers and idx < len(series_colors) and series_colors[idx]:
-            marker_x = geometry["plot_left"] + geometry["plot_width"] * (
-                marker_left_ratio + marker_step_ratio * idx
-            )
+        series_color = series_colors[idx] if idx < len(series_colors) else None
+        if legend_show_markers and series_color:
+            marker_x = plot_left + plot_width * (marker_left_ratio + marker_step_ratio * idx)
             marker_y = legend_y + marker_y_offset
             shape = slide.shapes.add_shape(
                 MSO_SHAPE.RECTANGLE,
@@ -135,7 +170,7 @@ def add_bar_legend(
                 int(marker_height),
             )
             shape.fill.solid()
-            rgb, theme = resolve_color(series_colors[idx])
+            rgb, theme = resolve_color(series_color)
             if theme is not None:
                 shape.fill.fore_color.theme_color = theme
             elif rgb is not None:
