@@ -38,6 +38,7 @@ from clean_slides.pptx_access import (
     slide_size_emu,
     text_frame_paragraphs,
     text_frame_text,
+    text_frame_xml_element,
 )
 
 
@@ -68,6 +69,7 @@ class _Chart:
 class _TextFrame:
     text: str
     paragraphs: list[object]
+    _element: object | None = None
 
 
 @dataclass
@@ -224,7 +226,7 @@ def test_presentation_chart_types_collects_chart_values() -> None:
 
 
 def test_shape_and_text_frame_helpers_cover_text_placeholder_connector() -> None:
-    text_frame = _TextFrame(text="  Hello  ", paragraphs=[object()])
+    text_frame = _TextFrame(text="  Hello  ", paragraphs=[object()], _element={"tag": "txBody"})
     shape = _Shape(
         has_chart=True,
         chart=_Chart(chart_type=57, series=[_Series(name="Revenue")], _chartSpace={"tag": "cs"}),
@@ -248,6 +250,7 @@ def test_shape_and_text_frame_helpers_cover_text_placeholder_connector() -> None
     assert frame is not None
     assert text_frame_text(frame) == "  Hello  "
     assert shape_text_frame_text(shape) == "  Hello  "
+    assert text_frame_xml_element(frame) == {"tag": "txBody"}
     assert len(text_frame_paragraphs(frame)) == 1
 
     assert shape_text(shape) == "inline"
