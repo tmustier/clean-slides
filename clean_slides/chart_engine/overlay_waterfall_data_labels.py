@@ -1,21 +1,10 @@
 """Chart overlay and manual label layout helpers."""
 
-# pyright: reportUnknownMemberType=false
-# pyright: reportUnknownParameterType=false
-# pyright: reportUnknownVariableType=false
-# pyright: reportUnknownArgumentType=false
-# pyright: reportMissingParameterType=false
-# pyright: reportMissingTypeArgument=false
-# pyright: reportGeneralTypeIssues=false
-# pyright: reportArgumentType=false
-# pyright: reportCallIssue=false
-# pyright: reportAttributeAccessIssue=false
-# pyright: reportIndexIssue=false
-# pyright: reportOperatorIssue=false
-# pyright: reportUnknownLambdaType=false
-# pyright: reportPossiblyUnboundVariable=false
-
 from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any, Union, cast
 
 from pptx.oxml.ns import qn
 from pptx.oxml.xmlchemy import OxmlElement
@@ -40,14 +29,146 @@ from .geometry import (
     value_to_x,
     value_to_y,
 )
-from .spec_utils import (
-    format_label,
-    numeric_value,
-    safe_value,
-)
+from .spec_utils import format_label, numeric_value, safe_value
+
+FloatOrNone = Union[float, None]
+ChartBox = tuple[int, int, int, int]
+LabelKey = tuple[int, int]
+LabelLayout = dict[str, float]
 
 
-def get_chart_series(chart_space) -> list[OxmlElement]:
+@dataclass
+class SegmentLabel:
+    series_idx: int
+    cat_idx: int
+    span: float
+    x_center: float
+    y_center: float
+    width: int
+    height: int
+    dx: float = 0.0
+    dy: float = 0.0
+
+
+def _mapping(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+
+    typed_mapping = cast(dict[object, object], value)
+    mapped: dict[str, object] = {}
+    for key, item in typed_mapping.items():
+        if isinstance(key, str):
+            mapped[key] = item
+    return mapped
+
+
+def _list(value: object) -> list[object]:
+    if not isinstance(value, list):
+        return []
+    return cast(list[object], value)
+
+
+def _string_list(value: object) -> list[str]:
+    result: list[str] = []
+    for item in _list(value):
+        if isinstance(item, str):
+            result.append(item)
+    return result
+
+
+def _segment_values(value: object) -> dict[str, list[object]]:
+    if not isinstance(value, dict):
+        return {}
+
+    typed_mapping = cast(dict[object, object], value)
+    values: dict[str, list[object]] = {}
+    for key, item in typed_mapping.items():
+        if isinstance(key, str):
+            values[key] = _list(item)
+    return values
+
+
+def _float(value: object, default: float = 0.0) -> float:
+    if isinstance(value, (int, float)):
+        return float(value)
+    return default
+
+
+def _int(value: object, default: int = 0) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    return default
+
+
+def _float_or_none(value: object) -> FloatOrNone:
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def _float_or_none_list(value: object) -> list[FloatOrNone]:
+    values: list[FloatOrNone] = []
+    for item in _list(value):
+        values.append(_float_or_none(item))
+    return values
+
+
+def _index_set(value: object) -> set[int]:
+    indices: set[int] = set()
+    if isinstance(value, set):
+        for item in cast(set[object], value):
+            if isinstance(item, int):
+                indices.add(item)
+        return indices
+
+    for item in _list(value):
+        if isinstance(item, int):
+            indices.add(item)
+    return indices
+
+
+def _plot_layout(value: object) -> dict[str, float]:
+    if isinstance(value, dict):
+        typed_mapping = cast(dict[object, object], value)
+        layout = {
+            key: float(item)
+            for key, item in typed_mapping.items()
+            if isinstance(key, str) and isinstance(item, (int, float))
+        }
+        if layout:
+            return layout
+
+    return dict(DEFAULT_WATERFALL_PLOT_LAYOUT)
+
+
+def _geometry_float(geometry: Mapping[str, object], key: str) -> float:
+    return _float(geometry.get(key), 0.0)
+
+
+def _geometry_series(geometry: Mapping[str, object], key: str) -> list[float]:
+    values = geometry.get(key)
+    if not isinstance(values, list):
+        return []
+
+    typed_values = cast(list[object], values)
+    result: list[float] = []
+    for item in typed_values:
+        if isinstance(item, (int, float)):
+            result.append(float(item))
+    return result
+
+
+def _label_at(values: Sequence[FloatOrNone], index: int) -> FloatOrNone:
+    if index < 0 or index >= len(values):
+        return None
+    return values[index]
+
+
+def get_chart_series(chart_space: Any) -> list[Any]:
     chart = chart_space.find(qn("c:chart"))
     if chart is None:
         return []
@@ -57,7 +178,7 @@ def get_chart_series(chart_space) -> list[OxmlElement]:
     bar_chart = plot_area.find(qn("c:barChart"))
     if bar_chart is None:
         return []
-    return bar_chart.findall(qn("c:ser"))
+    return cast(list[Any], bar_chart.findall(qn("c:ser")))
 
 
 def measure_label_width(text: str) -> int:
@@ -65,22 +186,90 @@ def measure_label_width(text: str) -> int:
     return int(DEFAULT_WATERFALL_LABEL_WIDTH_BASE + DEFAULT_WATERFALL_LABEL_WIDTH_PER_CHAR * length)
 
 
-def apply_waterfall_data_label_layout(chart, chart_box: tuple, meta: dict) -> None:
-    overlay = meta.get("overlay") if meta else None
+def _ensure_dlbls(series_element: Any) -> Any:
+    dlbls = series_element.find(qn("c:dLbls"))
+    if dlbls is not None:
+        return dlbls
+
+    dlbls = OxmlElement("c:dLbls")
+    insert_at = series_element.find(qn("c:val"))
+    if insert_at is not None:
+        series_element.insert(series_element.index(insert_at), dlbls)
+    else:
+        series_element.append(dlbls)
+    return dlbls
+
+
+def _set_child_val(parent: Any, tag: str, value: Union[str, int]) -> Any:
+    elem = parent.find(qn(tag))
+    if elem is None:
+        elem = OxmlElement(tag)
+        parent.append(elem)
+    elem.set("val", str(value))
+    return elem
+
+
+def _add_dlbl(
+    dlbls: Any,
+    point_idx: int,
+    show_val: bool = True,
+    manual_x: Union[float, None] = None,
+    manual_y: Union[float, None] = None,
+) -> Any:
+    dlbl = OxmlElement("c:dLbl")
+    idx_el = OxmlElement("c:idx")
+    idx_el.set("val", str(point_idx))
+    dlbl.append(idx_el)
+
+    if manual_x is not None or manual_y is not None:
+        layout_el = OxmlElement("c:layout")
+        manual_el = OxmlElement("c:manualLayout")
+        if manual_x is not None:
+            x_el = OxmlElement("c:x")
+            x_el.set("val", str(manual_x))
+            manual_el.append(x_el)
+        if manual_y is not None:
+            y_el = OxmlElement("c:y")
+            y_el.set("val", str(manual_y))
+            manual_el.append(y_el)
+        layout_el.append(manual_el)
+        dlbl.append(layout_el)
+
+    _set_child_val(dlbl, "c:dLblPos", "ctr")
+    _set_child_val(dlbl, "c:showLegendKey", 0)
+    _set_child_val(dlbl, "c:showVal", 1 if show_val else 0)
+    _set_child_val(dlbl, "c:showCatName", 0)
+    _set_child_val(dlbl, "c:showSerName", 0)
+    _set_child_val(dlbl, "c:showPercent", 0)
+    _set_child_val(dlbl, "c:showBubbleSize", 0)
+    dlbls.append(dlbl)
+    return dlbl
+
+
+def apply_waterfall_data_label_layout(
+    chart: object,
+    chart_box: ChartBox,
+    meta: Mapping[str, object],
+) -> None:
+    overlay = _mapping(meta.get("overlay")) if meta else {}
     if not overlay:
         return
 
-    categories = overlay.get("categories", [])
-    chart_series = overlay.get("chart_series", [])
-    segment_values = overlay.get("segment_values", {})
-    label_bottoms = overlay.get("label_bottoms", [])
-    orientation = normalize_orientation(meta.get("orientation"))
-    offset_indices = set(meta.get("offset_label_indices") or [])
+    categories = _list(overlay.get("categories"))
+    chart_series = _string_list(overlay.get("chart_series"))
+    segment_values = _segment_values(overlay.get("segment_values"))
+    label_bottoms = _float_or_none_list(overlay.get("label_bottoms"))
 
-    axis_min = meta.get("axis_min", 0)
-    axis_max = meta.get("axis_max", 0)
-    gap_width = int(meta.get("gap_width", 80))
-    plot_layout = meta.get("plot_layout") or DEFAULT_WATERFALL_PLOT_LAYOUT
+    orientation_raw = meta.get("orientation")
+    orientation = normalize_orientation(
+        orientation_raw if isinstance(orientation_raw, str) else None
+    )
+    offset_indices = _index_set(meta.get("offset_label_indices"))
+
+    axis_min = _float(meta.get("axis_min"), 0.0)
+    axis_max = _float(meta.get("axis_max"), 0.0)
+    gap_width = _int(meta.get("gap_width"), 80)
+    plot_layout = _plot_layout(meta.get("plot_layout"))
 
     geometry = compute_category_geometry(
         chart_box,
@@ -89,51 +278,49 @@ def apply_waterfall_data_label_layout(chart, chart_box: tuple, meta: dict) -> No
         gap_width,
         orientation,
     )
-    plot_left = geometry["plot_left"]
-    plot_top = geometry["plot_top"]
-    plot_width = geometry["plot_width"]
-    plot_height = geometry["plot_height"]
 
-    if orientation == "horizontal":
-        bar_span = geometry["bar_height"]
-    else:
-        bar_span = geometry["bar_width"]
+    plot_left = _geometry_float(geometry, "plot_left")
+    plot_top = _geometry_float(geometry, "plot_top")
+    plot_width = _geometry_float(geometry, "plot_width")
+    plot_height = _geometry_float(geometry, "plot_height")
+    bar_centers = _geometry_series(geometry, "bar_centers")
+
+    bar_span = (
+        _geometry_float(geometry, "bar_height")
+        if orientation == "horizontal"
+        else _geometry_float(geometry, "bar_width")
+    )
 
     inside_offset_x = bar_span * DEFAULT_WATERFALL_DLABEL_INSIDE_OFFSET_RATIO
     outside_offset_x = bar_span * DEFAULT_WATERFALL_DLABEL_OUTSIDE_OFFSET_RATIO
     outside_spacing = (
-        DEFAULT_WATERFALL_VALUE_LABEL_HEIGHT * DEFAULT_WATERFALL_DLABEL_OUTSIDE_SPACING_RATIO
+        int(DEFAULT_WATERFALL_VALUE_LABEL_HEIGHT) * DEFAULT_WATERFALL_DLABEL_OUTSIDE_SPACING_RATIO
     )
+
     if orientation == "horizontal":
         default_dy = plot_height * DEFAULT_WATERFALL_DLABEL_Y_OFFSET_RATIO_HORIZONTAL
     else:
         default_dy = plot_height * DEFAULT_WATERFALL_DLABEL_Y_OFFSET_RATIO
 
-    data_label_decimals = meta.get("data_label_decimals")
-    if data_label_decimals is None:
-        data_label_decimals = 0
+    data_label_decimals = _int(meta.get("data_label_decimals"), 0)
 
-    # Build label layout per category
-    label_layout: dict[tuple[int, int], dict[str, float]] = {}
-    hide_labels: set[tuple[int, int]] = set()
+    label_layout: dict[LabelKey, LabelLayout] = {}
+    hide_labels: set[LabelKey] = set()
 
     for cat_idx in range(len(categories)):
-        base_val = label_bottoms[cat_idx] if cat_idx < len(label_bottoms) else None
-        if base_val is None:
-            base_val = 0.0
-        current = base_val
-        labels = []
+        base_val = _label_at(label_bottoms, cat_idx)
+        current = 0.0 if base_val is None else base_val
+        labels: list[SegmentLabel] = []
 
         for series_order, series_name in enumerate(chart_series):
             values = segment_values.get(series_name, [])
             value = numeric_value(safe_value(values, cat_idx))
             if value is None:
                 continue
+
             magnitude = abs(value)
             if magnitude == 0:
-                # suppress zero labels
-                series_idx = series_order + 1
-                hide_labels.add((series_idx, cat_idx))
+                hide_labels.add((series_order + 1, cat_idx))
                 continue
 
             seg_bottom = current
@@ -145,180 +332,156 @@ def apply_waterfall_data_label_layout(chart, chart_box: tuple, meta: dict) -> No
                 x_end = value_to_x(seg_top, axis_min, axis_max, plot_left, plot_width)
                 span = abs(x_end - x_start)
                 x_center = (x_start + x_end) / 2
-                y_center = geometry["bar_centers"][cat_idx]
+                y_center = bar_centers[cat_idx] if cat_idx < len(bar_centers) else 0.0
             else:
                 y_top = value_to_y(seg_top, axis_min, axis_max, plot_top, plot_height)
                 y_bottom = value_to_y(seg_bottom, axis_min, axis_max, plot_top, plot_height)
                 span = abs(y_bottom - y_top)
-                x_center = geometry["bar_centers"][cat_idx]
+                x_center = bar_centers[cat_idx] if cat_idx < len(bar_centers) else 0.0
                 y_center = (y_top + y_bottom) / 2
 
-            text = format_label(magnitude, decimals=int(data_label_decimals))
-            label_width = measure_label_width(text)
+            text = format_label(magnitude, decimals=data_label_decimals)
+            if text is None:
+                continue
 
             labels.append(
-                {
-                    "series_idx": series_order + 1,
-                    "cat_idx": cat_idx,
-                    "span": span,
-                    "x_center": x_center,
-                    "y_center": y_center,
-                    "width": label_width,
-                    "height": DEFAULT_WATERFALL_VALUE_LABEL_HEIGHT,
-                }
+                SegmentLabel(
+                    series_idx=series_order + 1,
+                    cat_idx=cat_idx,
+                    span=span,
+                    x_center=x_center,
+                    y_center=y_center,
+                    width=measure_label_width(text),
+                    height=int(DEFAULT_WATERFALL_VALUE_LABEL_HEIGHT),
+                )
             )
 
-        inside_labels = []
-        outside_labels = []
+        inside_labels: list[SegmentLabel] = []
+        outside_labels: list[SegmentLabel] = []
+
         for label in labels:
             if orientation == "horizontal":
-                threshold = label["width"] * DEFAULT_WATERFALL_DLABEL_MIN_INSIDE_RATIO
+                threshold = label.width * DEFAULT_WATERFALL_DLABEL_MIN_INSIDE_RATIO
             else:
-                threshold = label["height"] * DEFAULT_WATERFALL_DLABEL_MIN_INSIDE_RATIO
-            if label["span"] < threshold:
+                threshold = label.height * DEFAULT_WATERFALL_DLABEL_MIN_INSIDE_RATIO
+
+            if label.span < threshold:
                 outside_labels.append(label)
             else:
                 inside_labels.append(label)
 
-        # Inside labels: shift horizontally if overlapping (prefer shifting bottom label)
         if orientation == "vertical" and len(inside_labels) > 1:
-            sorted_labels = sorted(inside_labels, key=lambda item: item["y_center"])
+            sorted_labels = sorted(inside_labels, key=lambda item: item.y_center)
             overlap = any(
-                abs(sorted_labels[i]["y_center"] - sorted_labels[i - 1]["y_center"])
-                < DEFAULT_WATERFALL_VALUE_LABEL_HEIGHT
-                for i in range(1, len(sorted_labels))
+                abs(sorted_labels[idx].y_center - sorted_labels[idx - 1].y_center)
+                < int(DEFAULT_WATERFALL_VALUE_LABEL_HEIGHT)
+                for idx in range(1, len(sorted_labels))
             )
             if overlap:
-                sorted_labels[-1]["dx"] = -inside_offset_x
+                sorted_labels[-1].dx = -inside_offset_x
 
-        # Outside labels: move to the right and separate vertically
         if outside_labels and orientation == "vertical":
-            sorted_labels = sorted(outside_labels, key=lambda item: item["y_center"])
+            sorted_labels = sorted(outside_labels, key=lambda item: item.y_center)
             if len(sorted_labels) == 2:
-                sorted_labels[0]["dx"] = outside_offset_x
-                sorted_labels[0]["dy"] = (
-                    DEFAULT_WATERFALL_VALUE_LABEL_HEIGHT
+                sorted_labels[0].dx = outside_offset_x
+                sorted_labels[0].dy = (
+                    int(DEFAULT_WATERFALL_VALUE_LABEL_HEIGHT)
                     * DEFAULT_WATERFALL_DLABEL_OUTSIDE_TOP_RATIO
                 )
-                sorted_labels[1]["dx"] = outside_offset_x
-                sorted_labels[1]["dy"] = (
-                    DEFAULT_WATERFALL_VALUE_LABEL_HEIGHT
+                sorted_labels[1].dx = outside_offset_x
+                sorted_labels[1].dy = (
+                    int(DEFAULT_WATERFALL_VALUE_LABEL_HEIGHT)
                     * DEFAULT_WATERFALL_DLABEL_OUTSIDE_BOTTOM_RATIO
                 )
             else:
                 count = len(sorted_labels)
                 for idx, label in enumerate(sorted_labels):
                     offset_index = idx - (count - 1) / 2
-                    label["dx"] = outside_offset_x
-                    label["dy"] = offset_index * outside_spacing
+                    label.dx = outside_offset_x
+                    label.dy = offset_index * outside_spacing
 
-        # Horizontal outside labels: move below the bar with spacing
         if outside_labels and orientation == "horizontal":
-            sorted_labels = sorted(outside_labels, key=lambda item: item["x_center"])
+            sorted_labels = sorted(outside_labels, key=lambda item: item.x_center)
             count = len(sorted_labels)
             for idx, label in enumerate(sorted_labels):
                 offset_index = idx - (count - 1) / 2
-                label["dy"] = bar_span * 0.75 + offset_index * outside_spacing
+                label.dy = bar_span * 0.75 + offset_index * outside_spacing
 
         for label in labels:
-            dx = label.get("dx", 0.0)
-            dy = label.get("dy", 0.0)
-            dy += default_dy
-            key = (label["series_idx"], label["cat_idx"])
+            dx = label.dx
+            dy = label.dy + default_dy
+            key = (label.series_idx, label.cat_idx)
             label_layout[key] = {
-                "x": dx / plot_width if plot_width else 0,
-                "y": dy / plot_height if plot_height else 0,
+                "x": dx / plot_width if plot_width else 0.0,
+                "y": dy / plot_height if plot_height else 0.0,
             }
 
-    series_elements = get_chart_series(chart._chartSpace)
+    chart_space = getattr(chart, "_chartSpace", None)
+    if chart_space is None:
+        return
+
+    series_elements = get_chart_series(chart_space)
     if not series_elements:
         return
 
-    def ensure_dlbls(ser):
-        dlbls = ser.find(qn("c:dLbls"))
-        if dlbls is None:
-            dlbls = OxmlElement("c:dLbls")
-            insert_at = ser.find(qn("c:val"))
-            if insert_at is not None:
-                ser.insert(ser.index(insert_at), dlbls)
-            else:
-                ser.append(dlbls)
-        return dlbls
+    offset_idx = _int(meta.get("offset_series_idx"), 0)
 
-    def set_child_val(parent, tag, value):
-        elem = parent.find(qn(tag))
-        if elem is None:
-            elem = OxmlElement(tag)
-            parent.append(elem)
-        elem.set("val", str(value))
-        return elem
-
-    def add_dlbl(dlbls, point_idx, show_val=True, manual_x=None, manual_y=None):
-        dlbl = OxmlElement("c:dLbl")
-        idx_el = OxmlElement("c:idx")
-        idx_el.set("val", str(point_idx))
-        dlbl.append(idx_el)
-        if manual_x is not None or manual_y is not None:
-            layout_el = OxmlElement("c:layout")
-            manual_el = OxmlElement("c:manualLayout")
-            if manual_x is not None:
-                x_el = OxmlElement("c:x")
-                x_el.set("val", str(manual_x))
-                manual_el.append(x_el)
-            if manual_y is not None:
-                y_el = OxmlElement("c:y")
-                y_el.set("val", str(manual_y))
-                manual_el.append(y_el)
-            layout_el.append(manual_el)
-            dlbl.append(layout_el)
-        set_child_val(dlbl, "c:dLblPos", "ctr")
-        set_child_val(dlbl, "c:showLegendKey", 0)
-        set_child_val(dlbl, "c:showVal", 1 if show_val else 0)
-        set_child_val(dlbl, "c:showCatName", 0)
-        set_child_val(dlbl, "c:showSerName", 0)
-        set_child_val(dlbl, "c:showPercent", 0)
-        set_child_val(dlbl, "c:showBubbleSize", 0)
-        dlbls.append(dlbl)
-        return dlbl
-
-    # Offset series labels (row0) for reused start values
-    offset_idx = meta.get("offset_series_idx", 0)
     if 0 <= offset_idx < len(series_elements):
-        ser = series_elements[offset_idx]
-        dlbls = ensure_dlbls(ser)
-        # clear existing point labels
+        series_element = series_elements[offset_idx]
+        dlbls = _ensure_dlbls(series_element)
+
         for child in list(dlbls):
             if child.tag == qn("c:dLbl"):
                 dlbls.remove(child)
-        set_child_val(dlbls, "c:dLblPos", "ctr")
-        set_child_val(dlbls, "c:showLegendKey", 0)
-        set_child_val(dlbls, "c:showVal", 0)
-        set_child_val(dlbls, "c:showCatName", 0)
-        set_child_val(dlbls, "c:showSerName", 0)
-        set_child_val(dlbls, "c:showPercent", 0)
-        set_child_val(dlbls, "c:showBubbleSize", 0)
+
+        _set_child_val(dlbls, "c:dLblPos", "ctr")
+        _set_child_val(dlbls, "c:showLegendKey", 0)
+        _set_child_val(dlbls, "c:showVal", 0)
+        _set_child_val(dlbls, "c:showCatName", 0)
+        _set_child_val(dlbls, "c:showSerName", 0)
+        _set_child_val(dlbls, "c:showPercent", 0)
+        _set_child_val(dlbls, "c:showBubbleSize", 0)
+
+        default_manual_y = default_dy / plot_height if plot_height else 0.0
 
         for idx in sorted(offset_indices):
-            key = (offset_idx, idx)
-            layout = label_layout.get(key)
-            manual_x = layout.get("x") if layout else 0
-            manual_y = layout.get("y") if layout else default_dy / plot_height
-            add_dlbl(dlbls, idx, show_val=True, manual_x=manual_x, manual_y=manual_y)
+            layout = label_layout.get((offset_idx, idx))
+            manual_x = layout.get("x", 0.0) if layout else 0.0
+            manual_y = layout.get("y", default_manual_y) if layout else default_manual_y
+            _add_dlbl(
+                dlbls,
+                idx,
+                show_val=True,
+                manual_x=manual_x,
+                manual_y=manual_y,
+            )
 
-    # Non-offset series label overrides
-    for series_idx, ser in enumerate(series_elements):
+    for series_idx, series_element in enumerate(series_elements):
         if series_idx == offset_idx:
             continue
-        dlbls = ensure_dlbls(ser)
-        set_child_val(dlbls, "c:dLblPos", "ctr")
-        set_child_val(dlbls, "c:showVal", 1)
+
+        dlbls = _ensure_dlbls(series_element)
+        _set_child_val(dlbls, "c:dLblPos", "ctr")
+        _set_child_val(dlbls, "c:showVal", 1)
+
         for key, layout in label_layout.items():
             if key[0] != series_idx:
                 continue
-            add_dlbl(
-                dlbls, key[1], show_val=True, manual_x=layout.get("x"), manual_y=layout.get("y")
+            _add_dlbl(
+                dlbls,
+                key[1],
+                show_val=True,
+                manual_x=layout.get("x"),
+                manual_y=layout.get("y"),
             )
-        for hide_key in hide_labels:
-            if hide_key[0] != series_idx:
+
+        for hidden_key in hide_labels:
+            if hidden_key[0] != series_idx:
                 continue
-            add_dlbl(dlbls, hide_key[1], show_val=False, manual_x=None, manual_y=None)
+            _add_dlbl(
+                dlbls,
+                hidden_key[1],
+                show_val=False,
+                manual_x=None,
+                manual_y=None,
+            )
