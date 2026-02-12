@@ -23,7 +23,7 @@ from pptx.slide import Slide, SlideLayout
 from pptx.text.text import TextFrame
 from typing_extensions import TypeGuard
 
-from .pptx_access import chart_xml_space, paragraph_xml_element
+from .pptx_access import chart_xml_space, paragraph_xml_element, text_frame_xml_element
 
 # ── Helpers ────────────────────────────────────────────────────────────
 
@@ -232,7 +232,7 @@ def _paragraph_xml(paragraph: _ParagraphLike) -> XmlElement:
     paragraph_el = paragraph_xml_element(paragraph)
     if paragraph_el is None:
         raise ValueError("Paragraph object missing _element")
-    return paragraph_el
+    return cast(XmlElement, paragraph_el)
 
 
 # ── Data classes ───────────────────────────────────────────────────────
@@ -304,21 +304,23 @@ class RunInfo:
     subscript: bool | None = None
 
     def to_dict(self):
-        d = {"text": self.text}
-        # Output in consistent order matching edit command
-        for k in (
-            "font",
-            "size",
-            "bold",
-            "italic",
-            "underline",
-            "color",
-            "superscript",
-            "subscript",
-        ):
-            v = getattr(self, k)
-            if v is not None:
-                d[k] = v
+        d: dict[str, object] = {"text": self.text}
+        if self.font is not None:
+            d["font"] = self.font
+        if self.size is not None:
+            d["size"] = self.size
+        if self.bold is not None:
+            d["bold"] = self.bold
+        if self.italic is not None:
+            d["italic"] = self.italic
+        if self.underline is not None:
+            d["underline"] = self.underline
+        if self.color is not None:
+            d["color"] = self.color
+        if self.superscript is not None:
+            d["superscript"] = self.superscript
+        if self.subscript is not None:
+            d["subscript"] = self.subscript
         return d
 
     def __str__(self):
@@ -1046,7 +1048,11 @@ def inspect_layout(layout: SlideLayout) -> list[PlaceholderInfo]:
                     default_alignment = align_map.get(int(p.alignment), str(p.alignment))
 
                 # Check defRPr on the paragraph
-                pPr = p._element.find(qn("a:pPr"))
+                paragraph_el_obj = paragraph_xml_element(p)
+                paragraph_el = (
+                    cast(XmlElement, paragraph_el_obj) if paragraph_el_obj is not None else None
+                )
+                pPr = paragraph_el.find(qn("a:pPr")) if paragraph_el is not None else None
                 if pPr is not None:
                     defRPr = pPr.find(qn("a:defRPr"))
                     if defRPr is not None:
@@ -1168,7 +1174,9 @@ def identify_color(prs: Presentation, rgb_hex: str) -> str | None:
 
 def _parse_text_frame(tf: TextFrame) -> TextFrameInfo:
     """Parse a text frame into TextFrameInfo."""
-    bodyPr = tf._element.find(qn("a:bodyPr"))
+    tf_el_obj = text_frame_xml_element(tf)
+    tf_el = cast(XmlElement, tf_el_obj) if tf_el_obj is not None else None
+    bodyPr = tf_el.find(qn("a:bodyPr")) if tf_el is not None else None
     anchor = bodyPr.get("anchor") if bodyPr is not None else None
 
     margins = None
