@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 from clean_slides.pptx_access import (
     chart_first_plot,
+    chart_part_name,
     chart_plots,
     chart_series,
     chart_series_names,
@@ -61,8 +62,14 @@ class _Chart:
     series: list[object]
     _chartSpace: object | None = None
     _element: object | None = None
+    part: object | None = None
     plots: list[object] = field(default_factory=_object_list)
     has_legend: bool = True
+
+
+@dataclass
+class _ChartPart:
+    partname: str
 
 
 @dataclass
@@ -229,7 +236,12 @@ def test_shape_and_text_frame_helpers_cover_text_placeholder_connector() -> None
     text_frame = _TextFrame(text="  Hello  ", paragraphs=[object()], _element={"tag": "txBody"})
     shape = _Shape(
         has_chart=True,
-        chart=_Chart(chart_type=57, series=[_Series(name="Revenue")], _chartSpace={"tag": "cs"}),
+        chart=_Chart(
+            chart_type=57,
+            series=[_Series(name="Revenue")],
+            _chartSpace={"tag": "cs"},
+            part=_ChartPart(partname="/ppt/charts/chart7.xml"),
+        ),
         has_text_frame=True,
         text_frame=text_frame,
         text="inline",
@@ -259,6 +271,7 @@ def test_shape_and_text_frame_helpers_cover_text_placeholder_connector() -> None
     assert shape_xml_element(shape) == {"tag": "shape"}
 
     assert chart_xml_space(chart) == {"tag": "cs"}
+    assert chart_part_name(chart) == "/ppt/charts/chart7.xml"
 
     paragraph = _Paragraph(_element={"tag": "p"})
     assert paragraph_xml_element(paragraph) == {"tag": "p"}

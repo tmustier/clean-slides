@@ -13,7 +13,7 @@ from pptx.enum.shapes import MSO_SHAPE, PP_PLACEHOLDER
 from pptx.oxml.ns import qn
 from pptx.util import Emu, Inches, Pt
 
-from ..pptx_access import chart_series_names, shape_has_text_frame, slide_charts
+from ..pptx_access import chart_series_names, chart_xml_space, shape_has_text_frame, slide_charts
 from . import annotations as _annotations
 from . import payloads as _payloads
 from .colors import apply_color
@@ -162,7 +162,7 @@ def _chart_box(value: tuple[object, object, object, object]) -> ChartBox | None:
 
 
 def apply_chart_template_dlbls(
-    target_chart: Any,
+    target_chart: object,
     template_path: Path,
     slide_index: int = 0,
     chart_index: int = 0,
@@ -178,10 +178,13 @@ def apply_chart_template_dlbls(
         return
 
     template_chart = template_charts[chart_index]
+    template_chart_space = chart_xml_space(template_chart)
+    target_chart_space = chart_xml_space(target_chart)
+    if template_chart_space is None or target_chart_space is None:
+        return
 
-    template_chart_obj = cast(Any, template_chart)
-    template_series = get_chart_series(template_chart_obj._chartSpace)
-    target_series = get_chart_series(target_chart._chartSpace)
+    template_series = get_chart_series(template_chart_space)
+    target_series = get_chart_series(target_chart_space)
     if not template_series or not target_series:
         return
     if series_index < 0 or series_index >= len(template_series):

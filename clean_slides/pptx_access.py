@@ -168,6 +168,13 @@ def chart_xml_element(chart: object) -> object | None:
     return getattr(chart, "_element", None)
 
 
+def chart_part_name(chart: object) -> str | None:
+    """Return chart partname (e.g. '/ppt/charts/chart1.xml') when available."""
+    chart_part = getattr(chart, "part", None)
+    partname = getattr(chart_part, "partname", None)
+    return str(partname) if partname is not None else None
+
+
 class _AddChartCallable(Protocol):
     def __call__(
         self,
