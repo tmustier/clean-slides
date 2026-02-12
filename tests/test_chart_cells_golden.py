@@ -33,6 +33,7 @@ class _GenerateArgs:
 _NS = {
     "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
     "c": "http://schemas.openxmlformats.org/drawingml/2006/chart",
+    "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
 }
 
 
@@ -61,6 +62,13 @@ def _chart_xml(path: Path, chart_index: int = 1) -> Any:
     chart_part = f"ppt/charts/chart{chart_index}.xml"
     with zipfile.ZipFile(path) as archive:
         xml_blob = archive.read(chart_part)
+    return etree.fromstring(xml_blob)
+
+
+def _slide_xml(path: Path, slide_index: int = 1) -> Any:
+    slide_part = f"ppt/slides/slide{slide_index}.xml"
+    with zipfile.ZipFile(path) as archive:
+        xml_blob = archive.read(slide_part)
     return etree.fromstring(xml_blob)
 
 
@@ -93,6 +101,15 @@ def _connector_count(path: Path) -> int:
         if shape_has_connector_endpoints(shape):
             count += 1
     return count
+
+
+def _find_text_shape_with_tokens(slide_xml: Any, tokens: set[str]) -> Any | None:
+    for shape in slide_xml.xpath(".//p:sp", namespaces=_NS):
+        text_values = shape.xpath(".//a:t/text()", namespaces=_NS)
+        text_tokens = {str(value).strip() for value in text_values}
+        if tokens.issubset(text_tokens):
+            return shape
+    return None
 
 
 def test_horizontal_chart_cells_keep_manual_offsets_and_format(tmp_path: Path) -> None:
@@ -170,6 +187,48 @@ table:
     assert num_formats == ["0", "0"]
 
 
+def test_horizontal_chart_cells_keep_distinct_offsets_for_negative_and_long_values(
+    tmp_path: Path,
+) -> None:
+    """Regression: offsets remain positive and scale with long/negative labels."""
+    yaml_text = """
+title: Horizontal offset stress regression
+charts:
+  rev:
+    dir: horizontal
+    values: [-1234.5, 98765.43, -44.0, 1200000.0]
+    format: "{:,.1f}"
+    color: accent1
+
+table:
+  rows: 4
+  cols: 1
+  has_col_header: false
+  cells:
+    - [rev-1]
+    - [rev-2]
+    - [rev-3]
+    - [rev-4]
+"""
+
+    output_path = _run_generate(tmp_path, "horizontal-offset-stress-regression", yaml_text)
+    chart_xml = _chart_xml(output_path)
+    labels = chart_xml.xpath(".//c:barChart/c:ser/c:dLbls/c:dLbl", namespaces=_NS)
+    assert len(labels) == 4
+
+    x_offsets: list[float] = []
+    for label in labels:
+        assert label.xpath("./c:dLblPos/@val", namespaces=_NS) == ["ctr"]
+        x_values = label.xpath("./c:layout/c:manualLayout/c:x/@val", namespaces=_NS)
+        assert len(x_values) == 1
+        x_offset = float(x_values[0])
+        assert x_offset > 0
+        x_offsets.append(x_offset)
+
+    assert max(x_offsets) - min(x_offsets) > 0.2
+    assert x_offsets[3] == max(x_offsets)
+
+
 def test_waterfall_chart_cells_keep_connectors_and_formatted_labels(tmp_path: Path) -> None:
     """Regression: waterfall chart-cells keep overlays + connector lines."""
     yaml_text = """
@@ -207,3 +266,70 @@ table:
     assert {"1", "2", "3", "4"}.isdisjoint(set(texts))
 
     assert _connector_count(output_path) >= 3
+
+
+def test_grouped_chart_cells_render_sub_headers_on_new_line_with_body_color(tmp_path: Path) -> None:
+    """Regression: grouped chart-cell headers keep ``sub`` on a styled second line."""
+    yaml_text = """
+title: Grouped chart cells with sub
+charts:
+  wf:
+    type: waterfall
+    dir: horizontal
+    values: [954, 13, -45, 1209]
+    totals: [1, 4]
+    decreases: [3]
+    format: "{:,.0f}"
+    connector: true
+
+table:
+  cols: 2
+  has_col_header: false
+  row_groups:
+    - header:
+        text: EBITDAaL bridge
+        sub: (€,m)
+      rows:
+        - ["Start", wf-1]
+        - ["Growth", wf-2]
+    - header:
+        text: Cost bridge
+        sub: (€,m)
+      rows:
+        - ["Costs", wf-3]
+        - ["End", wf-4]
+"""
+
+    output_path = _run_generate(tmp_path, "grouped-chart-cells-sub-regression", yaml_text)
+
+    assert _connector_count(output_path) >= 3
+
+    texts = _non_placeholder_texts(output_path)
+    assert any("EBITDAaL bridge" in text for text in texts)
+    assert any("Cost bridge" in text for text in texts)
+    assert {"Start", "Growth", "Costs", "End"}.issubset(set(texts))
+
+    slide_xml = _slide_xml(output_path)
+    header_shape = _find_text_shape_with_tokens(slide_xml, {"EBITDAaL bridge", "(€,m)"})
+    assert header_shape is not None
+
+    cost_shape = _find_text_shape_with_tokens(slide_xml, {"Cost bridge", "(€,m)"})
+    assert cost_shape is not None
+
+    for shape in [header_shape, cost_shape]:
+        run_texts = shape.xpath("./p:txBody/a:p/a:r/a:t/text()", namespaces=_NS)
+        assert len(run_texts) >= 2
+        assert run_texts[1] == "(€,m)"
+
+        assert shape.xpath("./p:txBody/a:p/a:br", namespaces=_NS)
+
+        main_bold = shape.xpath("./p:txBody/a:p/a:r[1]/a:rPr/@b", namespaces=_NS)
+        sub_bold = shape.xpath("./p:txBody/a:p/a:r[2]/a:rPr/@b", namespaces=_NS)
+        assert main_bold == ["1"]
+        assert sub_bold != ["1"]
+
+        sub_color = shape.xpath(
+            "./p:txBody/a:p/a:r[2]/a:rPr/a:solidFill/a:schemeClr/@val",
+            namespaces=_NS,
+        )
+        assert sub_color == ["tx1"]
