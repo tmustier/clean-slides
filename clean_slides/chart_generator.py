@@ -13,16 +13,21 @@ import argparse
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Protocol, Union, cast
+from typing import cast
 
 from pptx import Presentation
 
-from clean_slides.chart_engine import builder as _builder
-from clean_slides.chart_engine import colors as _colors
-from clean_slides.chart_engine import overlays as _overlays
-from clean_slides.chart_engine import payloads as _payloads
-from clean_slides.chart_engine import style as _style
+from clean_slides.chart_engine.builder import apply_data_label_style, build_chart
+from clean_slides.chart_engine.colors import apply_color
 from clean_slides.chart_engine.defaults import EXPECTED_TEMPLATE_ALIASES
+from clean_slides.chart_engine.overlays import add_waterfall_overlays
+from clean_slides.chart_engine.payloads import build_bar_payload, build_waterfall_payload
+from clean_slides.chart_engine.style import (
+    apply_bar_chart_style,
+    apply_series_colors,
+    apply_waterfall_chart_style,
+    apply_waterfall_style,
+)
 from clean_slides.chart_engine.template_ops import (
     ChartTemplateReplacement,
     apply_chart_template_replacements,
@@ -32,73 +37,6 @@ from clean_slides.chart_engine.template_ops import (
 
 ChartSpec = dict[str, object]
 DeckMeta = dict[str, object]
-TemplatePath = Union[Path, None]
-LayoutName = Union[str, None]
-SeriesColor = Union[str, None]
-SlideSize = Union[tuple[int, int], None]
-
-ApplyDataLabelStyleFn = Callable[[object, dict[str, object]], None]
-ApplyColorFn = Callable[[object, object], bool]
-BuildPayloadFn = Callable[[ChartSpec], tuple[object, object, dict[str, object]]]
-ApplyChartStyleFn = Callable[[object, dict[str, object]], None]
-ApplySeriesColorsFn = Callable[[object, list[SeriesColor]], None]
-AddWaterfallOverlaysFn = Callable[
-    [object, tuple[int, int, int, int], dict[str, object], SlideSize],
-    None,
-]
-
-
-class BuildChartFn(Protocol):
-    def __call__(
-        self,
-        prs: object,
-        spec: ChartSpec,
-        output_path: Path,
-        template_path: TemplatePath = None,
-        layout_name: LayoutName = None,
-        save: bool = True,
-        defer_template_copy: bool = False,
-    ) -> list[ChartTemplateReplacement]: ...
-
-
-def _require_attr(module: object, name: str) -> object:
-    value = getattr(module, name, None)
-    if value is None:
-        raise AttributeError(f"{module!r} does not expose {name}")
-    return value
-
-
-apply_data_label_style = cast(
-    ApplyDataLabelStyleFn,
-    _require_attr(_builder, "apply_data_label_style"),
-)
-build_chart = cast(BuildChartFn, _require_attr(_builder, "build_chart"))
-apply_color = cast(ApplyColorFn, _require_attr(_colors, "apply_color"))
-build_bar_payload = cast(BuildPayloadFn, _require_attr(_payloads, "build_bar_payload"))
-build_waterfall_payload = cast(
-    BuildPayloadFn,
-    _require_attr(_payloads, "build_waterfall_payload"),
-)
-apply_bar_chart_style = cast(
-    ApplyChartStyleFn,
-    _require_attr(_style, "apply_bar_chart_style"),
-)
-apply_series_colors = cast(
-    ApplySeriesColorsFn,
-    _require_attr(_style, "apply_series_colors"),
-)
-apply_waterfall_chart_style = cast(
-    ApplyChartStyleFn,
-    _require_attr(_style, "apply_waterfall_chart_style"),
-)
-apply_waterfall_style = cast(
-    ApplyChartStyleFn,
-    _require_attr(_style, "apply_waterfall_style"),
-)
-add_waterfall_overlays = cast(
-    AddWaterfallOverlaysFn,
-    _require_attr(_overlays, "add_waterfall_overlays"),
-)
 
 
 @dataclass(frozen=True)
