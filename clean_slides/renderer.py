@@ -24,7 +24,7 @@ from .constants import (
     Layout,
     TableDefaults,
 )
-from .content import Paragraph, make_sub_paragraph, normalize_cell
+from .content import Paragraph, normalize_cell
 from .icons import IconSet, icon_cell_value
 from .measure import column_right_pads, should_use_line_breaks, textbox_width
 from .spec import Box, CellOverride, ChartRef, ContentArea, TableLayout, TableSpec
@@ -216,9 +216,12 @@ class TableRenderer:
                 if last_col_in_span < total_grid_cols - 1:
                     divider_w = w - self._col_right_pads[last_col_in_span]
 
-                paragraphs = normalize_cell(csh.label, default, parse_bullets=False)
+                raw_header: object
                 if csh.sub:
-                    paragraphs.append(make_sub_paragraph(csh.sub, paragraphs[0]))
+                    raw_header = {"text": csh.label, "sub": csh.sub}
+                else:
+                    raw_header = csh.label
+                paragraphs = normalize_cell(raw_header, default, parse_bullets=False)
                 self._add_cell(
                     box,
                     paragraphs,
