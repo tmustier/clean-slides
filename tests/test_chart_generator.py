@@ -36,6 +36,25 @@ def test_normalize_chart_specs_multi_spec_with_deck_meta() -> None:
     assert deck_meta == {"template": "templates/base.pptx", "layout": "Default"}
 
 
+def test_normalize_chart_specs_ignores_non_string_mapping_keys() -> None:
+    raw: dict[object, object] = {
+        "layout": "Default",
+        "charts": [
+            {
+                "categories": ["A"],
+                "series": [{"name": "S1", "values": [1]}],
+                99: "ignored",
+            }
+        ],
+        7: "ignored",
+    }
+
+    charts, deck_meta = normalize_chart_specs(raw)
+
+    assert deck_meta == {"layout": "Default"}
+    assert charts == [{"categories": ["A"], "series": [{"name": "S1", "values": [1]}]}]
+
+
 def test_normalize_chart_specs_rejects_non_list_charts() -> None:
     raw = {
         "charts": {"categories": ["A"], "series": [{"name": "S1", "values": [1]}]},
