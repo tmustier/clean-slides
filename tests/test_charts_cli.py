@@ -9,7 +9,7 @@ import copy
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, cast
 from unittest.mock import patch
 
 from pptx import Presentation
@@ -264,7 +264,8 @@ def test_build_bar_payload_resolves_chart_template_against_base_dir(tmp_path: Pa
     )
 
     expected_template = (base_dir / "templates" / "style.pptx").resolve()
-    assert style["bar"]["chart_template"] == str(expected_template)
+    bar_style = cast(dict[str, object], style["bar"])
+    assert bar_style["chart_template"] == str(expected_template)
 
 
 def test_build_bar_payload_keeps_empty_chart_template_disabled(tmp_path: Path) -> None:
@@ -283,4 +284,5 @@ def test_build_bar_payload_keeps_empty_chart_template_disabled(tmp_path: Path) -
         }
     )
 
-    assert style["bar"]["chart_template"] == ""
+    bar_style = cast(dict[str, object], style["bar"])
+    assert bar_style["chart_template"] == ""

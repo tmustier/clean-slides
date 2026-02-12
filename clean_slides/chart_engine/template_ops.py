@@ -1,10 +1,5 @@
 """Template and OPC-level chart replacement helpers."""
 
-# pyright: reportUnknownMemberType=false
-# pyright: reportUnknownVariableType=false
-# pyright: reportAttributeAccessIssue=false
-# pyright: reportUnknownArgumentType=false
-
 from __future__ import annotations
 
 import hashlib
@@ -13,7 +8,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 from collections.abc import Sequence
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from pptx import Presentation
 
@@ -48,6 +43,17 @@ def normalize_relationship_target(base_part: str, target: str) -> str:
     return posixpath.normpath(posixpath.join(base_dir, target))
 
 
+def _template_charts(slide: Any) -> list[Any]:
+    charts: list[Any] = []
+    for shape in slide.shapes:
+        if not bool(getattr(shape, "has_chart", False)):
+            continue
+        chart = getattr(shape, "chart", None)
+        if chart is not None:
+            charts.append(chart)
+    return charts
+
+
 def replace_chart_with_template(
     output_path: Path,
     chart_part: str,
@@ -62,15 +68,17 @@ def replace_chart_with_template(
             f"chart_template_slide {template_slide_index + 1} is out of range "
             f"(1-{len(template_prs.slides)})"
         )
+
     template_slide = template_prs.slides[template_slide_index]
-    template_charts = [shape.chart for shape in template_slide.shapes if shape.has_chart]
+    template_charts = _template_charts(template_slide)
     if template_chart_index < 0 or template_chart_index >= len(template_charts):
         raise ValueError(
             f"chart_template_chart_index {template_chart_index} is out of range "
             f"(0-{max(0, len(template_charts) - 1)})"
         )
+
     template_chart = template_charts[template_chart_index]
-    template_chart_part = template_chart.part.partname.lstrip("/")
+    template_chart_part = str(template_chart.part.partname).lstrip("/")
     template_chart_rels_part = f"ppt/charts/_rels/{Path(template_chart_part).name}.rels"
 
     template_chart_xml = read_pptx_part(template_path, template_chart_part)
@@ -79,15 +87,18 @@ def replace_chart_with_template(
     rel_ns = {"rel": "http://schemas.openxmlformats.org/package/2006/relationships"}
     rels_root = ET.fromstring(template_chart_rels)
     embedding_parts: dict[str, bytes] = {}
+
     for rel in rels_root.findall("rel:Relationship", rel_ns):
         if (
             rel.get("Type")
             != "http://schemas.openxmlformats.org/officeDocument/2006/relationships/package"
         ):
             continue
+
         target = rel.get("Target")
         if not target:
             continue
+
         part = normalize_relationship_target(template_chart_part, target)
         embedding_parts[part] = read_pptx_part(template_path, part)
 
@@ -95,18 +106,22 @@ def replace_chart_with_template(
     content_xml = read_pptx_part(output_path, "[Content_Types].xml")
     content_root = ET.fromstring(content_xml)
     ns = "{http://schemas.openxmlformats.org/package/2006/content-types}"
+
     existing_exts = {
         item.get("Extension")
         for item in content_root.findall(f"{ns}Default")
         if item.get("Extension")
     }
+
     for part in embedding_parts:
         ext = Path(part).suffix.lstrip(".")
         if not ext or ext in existing_exts:
             continue
+
         content_type = content_defaults.get(ext)
         if not content_type:
             continue
+
         node = ET.Element(f"{ns}Default")
         node.set("Extension", ext)
         node.set("ContentType", content_type)
@@ -115,13 +130,13 @@ def replace_chart_with_template(
 
     new_content_xml = ET.tostring(content_root, xml_declaration=True, encoding="UTF-8")
 
-    chart_part = chart_part.lstrip("/")
-    chart_rels_part = f"ppt/charts/_rels/{Path(chart_part).name}.rels"
+    normalized_chart_part = chart_part.lstrip("/")
+    chart_rels_part = f"ppt/charts/_rels/{Path(normalized_chart_part).name}.rels"
     temp_path = output_path.with_suffix(output_path.suffix + ".tmp")
 
     with zipfile.ZipFile(output_path) as zin, zipfile.ZipFile(temp_path, "w") as zout:
         for item in zin.infolist():
-            if item.filename == chart_part:
+            if item.filename == normalized_chart_part:
                 zout.writestr(item, template_chart_xml)
             elif item.filename == chart_rels_part:
                 zout.writestr(item, template_chart_rels)
@@ -131,6 +146,7 @@ def replace_chart_with_template(
                 continue
             else:
                 zout.writestr(item, zin.read(item.filename))
+
         for part, data in embedding_parts.items():
             zout.writestr(part, data)
 
@@ -147,10 +163,12 @@ def slide_master_signature(path: Path) -> str:
         )
         if not master_files:
             raise ValueError(f"No slide masters found in {path}")
+
         digest = hashlib.sha256()
         for name in master_files:
             digest.update(name.encode("utf-8"))
             digest.update(pptx.read(name))
+
     return digest.hexdigest()
 
 
@@ -160,6 +178,7 @@ def theme_name(path: Path) -> str | None:
         theme_xml = read_pptx_part(path, "ppt/theme/theme1.xml")
     except ValueError:
         return None
+
     root = ET.fromstring(theme_xml)
     return root.attrib.get("name")
 
@@ -174,7 +193,8 @@ class ChartTemplateReplacement(NamedTuple):
 
 
 def apply_chart_template_replacements(
-    output_path: Path, replacements: Sequence[ChartTemplateReplacement]
+    output_path: Path,
+    replacements: Sequence[ChartTemplateReplacement],
 ) -> None:
     """Apply all queued chart template replacements."""
     for replacement in replacements:
