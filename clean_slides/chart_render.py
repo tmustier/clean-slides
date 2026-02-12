@@ -18,6 +18,13 @@ from pptx.util import Emu, Pt
 
 from .chart_engine.spec_utils import object_list, optional_str_list, str_key_dict
 from .charts import ChartEngine
+from .pptx_access import (
+    set_text_frame_text,
+    shape_has_text_frame,
+    shape_text_frame,
+    text_frame_paragraphs,
+    text_frame_text,
+)
 from .spec import Box, ChartDef, ChartRef, ContentArea, TableLayout, TableSpec
 
 # ---------------------------------------------------------------------------
@@ -456,19 +463,28 @@ def _rewrite_overlay_value_label_texts(
     for shape_idx in range(start_shape_index, total_shapes):
         if label_idx >= len(label_texts):
             break
+
         shape = slide.shapes[shape_idx]
-        if not bool(getattr(shape, "has_text_frame", False)):
+        if not shape_has_text_frame(shape):
             continue
 
-        text_frame = cast(Any, shape).text_frame
-        existing = str(getattr(text_frame, "text", "")).strip()
-        if not existing:
+        text_frame = shape_text_frame(shape)
+        if text_frame is None:
             continue
 
-        text_frame.text = label_texts[label_idx]
-        paragraphs = cast(list[Any], text_frame.paragraphs)
+        existing_text = text_frame_text(text_frame)
+        if existing_text is None or not existing_text.strip():
+            continue
+
+        set_text_frame_text(text_frame, label_texts[label_idx])
+
+        paragraphs = text_frame_paragraphs(text_frame)
         if paragraphs:
-            paragraphs[0].font.size = Pt(font_size_pt)
+            first_paragraph = paragraphs[0]
+            font = getattr(first_paragraph, "font", None)
+            if font is not None:
+                font.size = Pt(font_size_pt)
+
         label_idx += 1
 
 

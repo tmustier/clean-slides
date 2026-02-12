@@ -9,6 +9,8 @@ from typing import Any, Union, cast
 from pptx import Presentation
 from pptx.oxml.ns import qn
 
+from ..pptx_access import shape_has_text_frame, shape_text, shape_xml_element
+
 TxBodyTemplate = object
 PathOrNone = Union[Path, None]
 
@@ -24,20 +26,21 @@ def load_txbody_template(template_path: Path, sample_text: str) -> TxBodyTemplat
     prs = Presentation(str(template_path))
     for slide in prs.slides:
         for shape in slide.shapes:
-            if not bool(getattr(shape, "has_text_frame", False)):
+            if not shape_has_text_frame(shape):
                 continue
 
-            text_value = getattr(shape, "text", None)
-            if not isinstance(text_value, str):
+            text_value = shape_text(shape)
+            if text_value is None:
                 continue
             if text_value.strip() != sample_text:
                 continue
 
-            shape_element = getattr(shape, "_element", None)
+            shape_element = shape_xml_element(shape)
             if shape_element is None:
                 continue
 
-            tx_body = shape_element.find(qn("p:txBody"))
+            shape_element_obj = cast(Any, shape_element)
+            tx_body = shape_element_obj.find(qn("p:txBody"))
             if tx_body is None:
                 continue
 
@@ -58,17 +61,18 @@ def apply_txbody_template(box: Any, template: TxBodyTemplate | None, text: str |
         for t_elem in tx_body_element.iter(qn("a:t")):
             t_elem.text = text
 
-    box_element = getattr(box, "_element", None)
+    box_element = shape_xml_element(box)
     if box_element is None:
         return
 
-    existing = box_element.find(qn("p:txBody"))
+    box_element_obj = cast(Any, box_element)
+    existing = box_element_obj.find(qn("p:txBody"))
     if existing is not None:
         parent = existing.getparent()
         if parent is not None:
             parent.replace(existing, tx_body)
     else:
-        box_element.append(tx_body)
+        box_element_obj.append(tx_body)
 
 
 def resolve_txbody_template(

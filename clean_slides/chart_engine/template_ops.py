@@ -8,9 +8,11 @@ import xml.etree.ElementTree as ET
 import zipfile
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, cast
 
 from pptx import Presentation
+
+from ..pptx_access import slide_charts
 
 
 def read_pptx_part(path: Path, part_name: str) -> bytes:
@@ -43,17 +45,6 @@ def normalize_relationship_target(base_part: str, target: str) -> str:
     return posixpath.normpath(posixpath.join(base_dir, target))
 
 
-def _template_charts(slide: Any) -> list[Any]:
-    charts: list[Any] = []
-    for shape in slide.shapes:
-        if not bool(getattr(shape, "has_chart", False)):
-            continue
-        chart = getattr(shape, "chart", None)
-        if chart is not None:
-            charts.append(chart)
-    return charts
-
-
 def replace_chart_with_template(
     output_path: Path,
     chart_part: str,
@@ -70,7 +61,7 @@ def replace_chart_with_template(
         )
 
     template_slide = template_prs.slides[template_slide_index]
-    template_charts = _template_charts(template_slide)
+    template_charts = slide_charts(template_slide)
     if template_chart_index < 0 or template_chart_index >= len(template_charts):
         raise ValueError(
             f"chart_template_chart_index {template_chart_index} is out of range "
@@ -78,7 +69,8 @@ def replace_chart_with_template(
         )
 
     template_chart = template_charts[template_chart_index]
-    template_chart_part = str(template_chart.part.partname).lstrip("/")
+    template_chart_obj = cast(Any, template_chart)
+    template_chart_part = str(template_chart_obj.part.partname).lstrip("/")
     template_chart_rels_part = f"ppt/charts/_rels/{Path(template_chart_part).name}.rels"
 
     template_chart_xml = read_pptx_part(template_path, template_chart_part)
