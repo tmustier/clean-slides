@@ -77,7 +77,7 @@ table:
 
   col_headers:                  # Optional, used if has_col_header=true (body cols only)
     - "Header 1"
-    - "Header 2"
+    - { text: "Header 2", sub: "(units)" }  # optional second line, non-bold
     - "Header 3"
     - "Header 4"
 
@@ -127,6 +127,7 @@ Paragraph object fields:
 
 ```yaml
 - text: "Paragraph text"
+  sub: "(optional second line)"  # optional subtitle/unit line in default body color
   lvl: 0            # 0 = no bullet, 1 = bullet, 2 = nested
   size: 14          # font size in pt
   color: accent1    # theme name (tx1, accent1, dk2, ...) or hex (#RRGGBB / RRGGBB)
@@ -135,6 +136,12 @@ Paragraph object fields:
   italic: false
   underline: false
 ```
+
+`sub` behavior:
+- rendered on a new line (line break inside the same paragraph block)
+- keeps `lvl`/`font`/`size`
+- forced non-bold
+- uses default body color (`tx1`)
 
 Example with bullets and overrides:
 
@@ -238,7 +245,7 @@ Each entry uses the same format as cell content: plain strings, paragraph object
 
 ## Row Groups (Superheaders)
 
-Use `row_groups` instead of `rows` + `row_headers` to create category-grouped tables with bold superheader rows spanning the full width. Each group has a `header` label and a list of `rows` beneath it.
+Use `row_groups` instead of `rows` + `row_headers` to create category-grouped tables with bold superheader rows spanning the full width. Each group has a `header` label and a list of `rows` beneath it. `header` can be either a string or an object like `{ text: "Group", sub: "(units)" }`.
 
 When using `row_groups`, omit `rows` and `row_headers` — the row count and row-header column are derived from the groups. You still need `cols` (total columns including the superheader column).
 

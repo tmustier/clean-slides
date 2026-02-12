@@ -1,6 +1,6 @@
 # Chart Cells — Design Document
 
-> **Status**: Implemented (alpha). Behavior and schema may still evolve.
+> **Status**: Implemented and covered by regression/canary tests.
 
 ## Summary
 
@@ -13,6 +13,16 @@ This extends clean-slides' core philosophy: constrained structure produces
 consistent output. Rows with chart cells get equal height. Columns with chart
 cells get equal width. The tool enforces the constraint; the author focuses on
 the data.
+
+### Current behavior highlights
+
+- Horizontal chart-cell labels use manual offsets (`dLblPos=ctr` + manual layout)
+  to preserve visible spacing from bar ends.
+- Waterfall chart-cells support connector overlays and formatted value labels.
+- Grouped row headers support `sub` text on a second line, rendered non-bold and
+  in default body color.
+- Chart template copy mode (`chart_template_copy`) is supported through the
+  chart-cell rendering path when bar template options are set.
 
 ---
 
@@ -300,55 +310,28 @@ table:
 
 ---
 
-## Implementation plan
+## Implementation notes
 
-### Phase 1: Parsing and validation
+The chart-cell pipeline is fully integrated in the standard YAML flow:
 
-1. **`spec.py`** — Parse `charts:` top-level key into `ChartDef` dataclass.
-   Detect `chartname-N` references in cells during `TableSpec.from_dict()`.
-   Store as `ChartRef(name, index)` in the cell grid.
+- Parsing and validation: `clean_slides/spec.py`
+- Placeholder handling: `clean_slides/placeholder.py`
+- Layout/sizing constraints: `clean_slides/sizing.py`
+- Rendering + chart placement: `clean_slides/renderer.py`
+- Chart internals and overlays: `clean_slides/chart_engine/*`
 
-2. **`placeholder.py`** — Skip chart-ref cells when filling placeholders.
+The behavior is covered by both targeted regressions and canary tests:
 
-3. **`validate.py`** — Add all checks from the validation table above.
-
-### Phase 2: Sizing
-
-4. **`sizing.py`** — When chart refs are present in a column, that column
-   participates in equal-width sizing. When chart refs span rows, those rows
-   participate in equal-height sizing.
-
-5. **`measure.py`** — Chart cells have zero text width (no text to measure).
-   Min width comes from the label format string at the configured font size.
-
-### Phase 3: Rendering
-
-6. **`renderer.py`** — After placing all text boxes, iterate chart groups.
-   For each group of merged chart refs:
-   - Compute bounding box from the cell positions
-   - Create a python-pptx chart shape (`slide.shapes.add_chart`)
-   - Configure: hide axes, set gap width, add data labels, apply fill color
-   - Position and size to the bounding box
-
-### Phase 4: Integration
-
-7. **`cli.py`** — No changes needed; `pptx generate` and `pptx validate`
-   pick up chart cells automatically through the existing pipeline.
-
-8. **Tests** — Unit tests for parsing, validation, sizing, and rendering.
-   Integration test generating a full chart-cell slide and verifying shape
-   count and positions.
+- `tests/test_chart_cells.py`
+- `tests/test_chart_cells_golden.py`
+- `tests/test_chart_engine_smoke.py`
+- `tests/test_canary_decks.py`
 
 ---
 
-## Out of scope (for now)
+## Current known limits
 
-- **Waterfall charts in cells** — waterfall bar positions must align with row
-  boundaries, requiring coordination between the chart's internal layout and
-  the table's row heights. Complex; defer to a later phase.
-
-- **Stacked bars in cells** — each cell currently maps to one bar. Stacked
-  bars (multiple values per cell) would need a different cell reference syntax.
-
-- **Chart-only slides** — this design is for charts embedded in tables. The
-  existing `pptx charts` command handles full-slide charts from JSON.
+- **No multi-value cell syntax for stacked segments** — each chart-cell ref
+  still maps to a single point (`chart-name-index`).
+- **Chart-cells are table-embedded only** — full-slide charts should use
+  `pptx charts` JSON specs.

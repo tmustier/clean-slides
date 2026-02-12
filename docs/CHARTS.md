@@ -1,9 +1,11 @@
-# Charts (JSON) — alpha
+# Charts (JSON)
 
-> **Alpha**: the chart generator works but the JSON schema and CLI flags may change.
+The `pptx charts` command generates native PowerPoint charts from JSON specs.
 
-The `pptx charts` command generates bar/stacked/waterfall charts from JSON specs using
-python-pptx plus optional overlay labels.
+Supported chart families:
+- clustered bars/columns
+- stacked bars/columns
+- waterfall (overlay-driven)
 
 ## Usage
 
@@ -31,25 +33,45 @@ The chart engine is bundled with `clean-slides`; no external module path is requ
   "categories": ["A", "B", "C"],
   "series": [
     {"name": "BU1", "values": [1, 2, 3], "color": "#4472C4"},
-    {"name": "BU2", "values": [4, 5, 6], "color": "#ED7D31"}
+    {"name": "BU2", "values": [4, 5, 6], "color": "accent2"}
   ],
   "show_data_labels": true,
   "add_overlay_labels": true
 }
 ```
 
-## Waterfall config
+## Bar options
+
+```json
+"bar": {
+  "orientation": "horizontal",
+  "chart_template": "templates/chart-style.pptx",
+  "chart_template_copy": true,
+  "chart_template_slide": 1,
+  "chart_template_chart_index": 0
+}
+```
+
+Notes:
+- `orientation` can be `horizontal` or `vertical`.
+- `chart_template_copy: true` applies an OPC-level chart XML/relationship replacement,
+  preserving template internals.
+- Template paths are resolved from the spec base directory when relative.
+
+## Waterfall options
 
 ```json
 "waterfall": {
+  "orientation": "horizontal",
   "decrease_categories": ["Costs"],
   "total_categories": ["Net"],
   "total_series": ["Totals"],
   "range_series": ["Range"],
   "reuse_start_base": true,
   "label_gap": 25600,
-  "connector_style": "gap",
-  "connector_value": "totals",
+  "connector_style": "gap",        // "gap" | "step"
+  "connector_dash_style": "long_dash", // "solid" | "long_dash" | "dot"
+  "connector_value": "totals",     // "totals" | "tops"
   "connector_overlap": 6000,
   "connector_inset": 10000,
   "total_override": false
@@ -57,19 +79,12 @@ The chart engine is bundled with `clean-slides`; no external module path is requ
 ```
 
 Notes:
-- `range_series` marks series that render visually but do **not** affect running totals.
-- Set `connector_value: "tops"` for legacy connector anchoring.
-- `total_override: true` restores legacy behavior where any series value in a total category overrides
-  computed totals.
+- `range_series` renders visually but does **not** affect running totals.
+- `connector_value: "tops"` restores legacy connector anchoring.
+- `total_override: true` restores legacy behavior where explicit values in total
+  categories override computed totals.
 
-## Horizontal charts
-
-```json
-"bar": { "orientation": "horizontal" }
-"waterfall": { "orientation": "horizontal" }
-```
-
-## Multi‑chart decks
+## Multi-chart decks
 
 Use a top-level `charts` list to generate multiple charts in one deck:
 

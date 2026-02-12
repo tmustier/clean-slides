@@ -160,6 +160,8 @@ python -m pytest -q
 pyright clean_slides/
 ```
 
+Release gate checklist: [docs/RELEASE-CHECKLIST.md](docs/RELEASE-CHECKLIST.md)
+
 ## Why this exists
 
 I spent six years writing slides in consulting. Most AI slide tools focus on imagery and visual polish — which has its place, but isn't what makes a consulting slide useful. A good slide is a unit of structured argumentation that happens to be visual. You figure out the narrative first, decompose it into pages, then fill each page with the component parts of your argument.
