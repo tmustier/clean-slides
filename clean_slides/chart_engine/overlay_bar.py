@@ -1,27 +1,16 @@
 """Chart overlay and manual label layout helpers."""
 
-# pyright: reportUnknownMemberType=false
-# pyright: reportUnknownParameterType=false
-# pyright: reportUnknownVariableType=false
-# pyright: reportUnknownArgumentType=false
-# pyright: reportMissingParameterType=false
-# pyright: reportMissingTypeArgument=false
-# pyright: reportGeneralTypeIssues=false
-# pyright: reportArgumentType=false
-# pyright: reportCallIssue=false
-# pyright: reportAttributeAccessIssue=false
-# pyright: reportIndexIssue=false
-# pyright: reportOperatorIssue=false
-# pyright: reportUnknownLambdaType=false
-# pyright: reportPossiblyUnboundVariable=false
-
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any, Callable, Union, cast
 
-from pptx.oxml.xmlchemy import OxmlElement
+from pptx.dml.color import RGBColor
+from pptx.util import Pt
 
-from .annotations import add_line_annotation, add_shape_annotation
+from . import annotations as _annotations
+from . import text_templates as _text_templates
 from .defaults import (
     DEFAULT_BAR_CATEGORY_LABEL_FONT_SIZE,
     DEFAULT_BAR_CATEGORY_LABEL_HEIGHT,
@@ -48,30 +37,210 @@ from .geometry import compute_category_geometry, normalize_orientation
 from .overlay_bar_legend import add_bar_legend
 from .overlay_bar_segments import add_bar_segment_labels
 from .overlay_bar_totals_categories import add_bar_category_labels, add_bar_total_labels
-from .text_templates import load_txbody_template
 from .units import resolve_path
 
+Number = Union[int, float]
+FloatOrNone = Union[float, None]
+NumberOrNone = Union[Number, None]
+IntOrNone = Union[int, None]
+StrOrNone = Union[str, None]
+PathOrNone = Union[Path, None]
+BaseDirValue = Union[str, Path, None]
+ColorValue = Union[RGBColor, str, None]
+FontValue = Union[Pt, int, float]
+OverlaySpec = Mapping[str, object]
+MetaSpec = Mapping[str, object]
 
-def add_bar_overlays(slide, chart_box: tuple, meta: dict) -> None:
-    overlay = meta.get("overlay") if meta else None
+AddLineAnnotationFn = Callable[[Any, dict[str, object]], None]
+AddShapeAnnotationFn = Callable[[Any, dict[str, object]], None]
+LoadTemplateFn = Callable[[Path, str], object]
+
+
+def _require_attr(module: object, name: str) -> object:
+    value = getattr(module, name, None)
+    if value is None:
+        raise AttributeError(f"{module!r} does not expose {name}")
+    return value
+
+
+add_line_annotation = cast(
+    AddLineAnnotationFn,
+    _require_attr(_annotations, "add_line_annotation"),
+)
+add_shape_annotation = cast(
+    AddShapeAnnotationFn,
+    _require_attr(_annotations, "add_shape_annotation"),
+)
+load_txbody_template = cast(
+    LoadTemplateFn,
+    _require_attr(_text_templates, "load_txbody_template"),
+)
+
+
+def _mapping(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+
+    typed_mapping = cast(dict[object, object], value)
+    mapped: dict[str, object] = {}
+    for key, item in typed_mapping.items():
+        if isinstance(key, str):
+            mapped[key] = item
+    return mapped
+
+
+def _list(value: object) -> list[object]:
+    if isinstance(value, list):
+        return cast(list[object], value)
+    if isinstance(value, tuple):
+        return list(cast(tuple[object, ...], value))
+    return []
+
+
+def _sequence_matrix(value: object) -> list[Sequence[object]]:
+    matrix: list[Sequence[object]] = []
+    for row in _list(value):
+        if isinstance(row, list):
+            matrix.append(cast(list[object], row))
+        elif isinstance(row, tuple):
+            matrix.append(list(cast(tuple[object, ...], row)))
+    return matrix
+
+
+def _number(value: object, default: Number = 0) -> Number:
+    return value if isinstance(value, (int, float)) else default
+
+
+def _int(value: object, default: int = 0) -> int:
+    return int(_number(value, default))
+
+
+def _float(value: object, default: float = 0.0) -> float:
+    return float(_number(value, default))
+
+
+def _bool(value: object, default: bool) -> bool:
+    return value if isinstance(value, bool) else default
+
+
+def _optional_str(value: object) -> StrOrNone:
+    return value if isinstance(value, str) else None
+
+
+def _base_dir(value: object) -> BaseDirValue:
+    if isinstance(value, (str, Path)):
+        return value
+    return None
+
+
+def _font_value(value: object, default: FontValue) -> FontValue:
+    if isinstance(value, Pt):
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    return default
+
+
+def _color(value: object) -> ColorValue:
+    if isinstance(value, (RGBColor, str)):
+        return value
+    return None
+
+
+def _string_list(value: object) -> list[str]:
+    result: list[str] = []
+    for item in _list(value):
+        if isinstance(item, str):
+            result.append(item)
+    return result
+
+
+def _string_or_none_list(value: object) -> list[StrOrNone]:
+    result: list[StrOrNone] = []
+    for item in _list(value):
+        if isinstance(item, str):
+            result.append(item)
+        elif item is None:
+            result.append(None)
+    return result
+
+
+def _float_or_none_list(value: object) -> list[FloatOrNone]:
+    result: list[FloatOrNone] = []
+    for item in _list(value):
+        if isinstance(item, (int, float)):
+            result.append(float(item))
+        else:
+            result.append(None)
+    return result
+
+
+def _number_or_none_list(value: object) -> list[NumberOrNone]:
+    result: list[NumberOrNone] = []
+    for item in _list(value):
+        if isinstance(item, (int, float)):
+            result.append(item)
+        else:
+            result.append(None)
+    return result
+
+
+def _int_or_none_list(value: object) -> list[IntOrNone]:
+    result: list[IntOrNone] = []
+    for item in _list(value):
+        if isinstance(item, (int, float)):
+            result.append(int(item))
+        else:
+            result.append(None)
+    return result
+
+
+def _number_list(value: object) -> list[Number]:
+    result: list[Number] = []
+    for item in _list(value):
+        if isinstance(item, (int, float)):
+            result.append(item)
+    return result
+
+
+def _plot_layout(value: object) -> dict[str, float]:
+    if isinstance(value, dict):
+        typed_mapping = cast(dict[object, object], value)
+        layout = {
+            key: float(item)
+            for key, item in typed_mapping.items()
+            if isinstance(key, str) and isinstance(item, (int, float))
+        }
+        if layout:
+            return layout
+
+    return dict(DEFAULT_BAR_PLOT_LAYOUT)
+
+
+def add_bar_overlays(
+    slide: Any,
+    chart_box: tuple[int, int, int, int],
+    meta: MetaSpec,
+) -> None:
+    overlay = _mapping(meta.get("overlay")) if meta else {}
     if not overlay:
         return
 
-    base_dir = overlay.get("_base_dir")
+    base_dir = _base_dir(overlay.get("_base_dir"))
 
-    categories = overlay.get("categories", [])
-    totals = overlay.get("totals", [])
-    total_label_tops = overlay.get("total_label_tops") or []
-    series_names = overlay.get("series_names", [])
-    series_colors = overlay.get("series_colors", [])
-    show_totals = overlay.get("show_totals", False)
-    show_legend = overlay.get("show_legend_labels", True)
+    categories = _list(overlay.get("categories"))
+    totals = _float_or_none_list(overlay.get("totals"))
+    total_label_tops = _float_or_none_list(overlay.get("total_label_tops"))
+    series_names = _string_list(overlay.get("series_names"))
+    series_colors = _string_or_none_list(overlay.get("series_colors"))
+    show_totals = _bool(overlay.get("show_totals", False), False)
+    show_legend = _bool(overlay.get("show_legend_labels", True), True)
 
-    axis_min = meta.get("axis_min", 0)
-    axis_max = meta.get("axis_max", 0)
-    gap_width = int(meta.get("gap_width", 80))
-    plot_layout = meta.get("plot_layout") or DEFAULT_BAR_PLOT_LAYOUT
-    orientation = normalize_orientation(meta.get("orientation"))
+    axis_min = _float(meta.get("axis_min", 0), 0.0)
+    axis_max = _float(meta.get("axis_max", 0), 0.0)
+    gap_width = _int(meta.get("gap_width", 80), 80)
+    plot_layout = _plot_layout(meta.get("plot_layout"))
+    orientation = normalize_orientation(_optional_str(meta.get("orientation")))
 
     geometry = compute_category_geometry(
         chart_box,
@@ -80,75 +249,135 @@ def add_bar_overlays(slide, chart_box: tuple, meta: dict) -> None:
         gap_width,
         orientation,
     )
-    plot_top = geometry["plot_top"]
-    plot_height = geometry["plot_height"]
-    plot_left = geometry["plot_left"]
-    plot_width = geometry["plot_width"]
+    plot_top = _float(geometry.get("plot_top"), 0.0)
+    plot_height = _float(geometry.get("plot_height"), 0.0)
+    plot_left = _float(geometry.get("plot_left"), 0.0)
+    plot_width = _float(geometry.get("plot_width"), 0.0)
     plot_bottom = plot_top + plot_height
 
-    category_width = overlay.get("category_label_width", DEFAULT_BAR_CATEGORY_LABEL_WIDTH)
-    category_widths = overlay.get("category_label_widths") or []
-    legend_width = overlay.get("legend_label_width", DEFAULT_BAR_LEGEND_LABEL_WIDTH)
-    total_width = overlay.get("total_label_width", DEFAULT_BAR_TOTAL_LABEL_WIDTH)
-    total_widths = overlay.get("total_label_widths") or []
-    category_offsets = overlay.get("category_label_offsets") or []
-
-    category_height = overlay.get("category_label_height", DEFAULT_BAR_CATEGORY_LABEL_HEIGHT)
-    category_heights = overlay.get("category_label_heights") or []
-    legend_height = overlay.get("legend_label_height", DEFAULT_BAR_LEGEND_LABEL_HEIGHT)
-    total_height = overlay.get("total_label_height", DEFAULT_BAR_TOTAL_LABEL_HEIGHT)
-
-    category_font = overlay.get("category_label_font", DEFAULT_BAR_CATEGORY_LABEL_FONT_SIZE)
-    legend_font = overlay.get("legend_label_font", DEFAULT_BAR_LEGEND_LABEL_FONT_SIZE)
-    total_font = overlay.get("total_label_font", DEFAULT_BAR_TOTAL_LABEL_FONT_SIZE)
-
-    category_color = overlay.get("category_label_color")
-    legend_color = overlay.get("legend_label_color")
-    total_color = overlay.get("total_label_color")
-
-    total_label_offsets = overlay.get("total_label_offsets") or []
-
-    legend_left_ratio = overlay.get("legend_left_ratio", DEFAULT_BAR_LEGEND_LEFT_RATIO)
-    legend_step_ratio = overlay.get("legend_step_ratio", DEFAULT_BAR_LEGEND_STEP_RATIO)
-    marker_left_ratio = overlay.get(
-        "legend_marker_left_ratio", DEFAULT_BAR_LEGEND_MARKER_LEFT_RATIO
+    category_width = _int(
+        overlay.get("category_label_width", DEFAULT_BAR_CATEGORY_LABEL_WIDTH),
+        int(DEFAULT_BAR_CATEGORY_LABEL_WIDTH),
     )
-    marker_step_ratio = overlay.get(
-        "legend_marker_step_ratio", DEFAULT_BAR_LEGEND_MARKER_STEP_RATIO
+    category_widths = _number_or_none_list(overlay.get("category_label_widths"))
+    legend_width = _int(
+        overlay.get("legend_label_width", DEFAULT_BAR_LEGEND_LABEL_WIDTH),
+        int(DEFAULT_BAR_LEGEND_LABEL_WIDTH),
     )
-    marker_width = overlay.get("legend_marker_width", DEFAULT_BAR_LEGEND_MARKER_WIDTH)
-    marker_height = overlay.get("legend_marker_height", DEFAULT_BAR_LEGEND_MARKER_HEIGHT)
-    marker_y_offset = overlay.get("legend_marker_y_offset", DEFAULT_BAR_LEGEND_MARKER_Y_OFFSET)
-    total_label_offset = overlay.get("total_label_offset", DEFAULT_BAR_TOTAL_LABEL_OFFSET)
-    total_label_offsets_x = overlay.get("total_label_offsets_x") or []
-    category_offset = overlay.get("category_label_offset", DEFAULT_BAR_CATEGORY_LABEL_OFFSET)
-    legend_offset = overlay.get("legend_label_offset", DEFAULT_BAR_LEGEND_LABEL_OFFSET)
+    total_width = _int(
+        overlay.get("total_label_width", DEFAULT_BAR_TOTAL_LABEL_WIDTH),
+        int(DEFAULT_BAR_TOTAL_LABEL_WIDTH),
+    )
+    total_widths = _int_or_none_list(overlay.get("total_label_widths"))
+    category_offsets = _number_list(overlay.get("category_label_offsets"))
 
-    annotations = overlay.get("annotations") or []
+    category_height = _int(
+        overlay.get("category_label_height", DEFAULT_BAR_CATEGORY_LABEL_HEIGHT),
+        int(DEFAULT_BAR_CATEGORY_LABEL_HEIGHT),
+    )
+    category_heights = _number_or_none_list(overlay.get("category_label_heights"))
+    legend_height = _int(
+        overlay.get("legend_label_height", DEFAULT_BAR_LEGEND_LABEL_HEIGHT),
+        int(DEFAULT_BAR_LEGEND_LABEL_HEIGHT),
+    )
+    total_height = _int(
+        overlay.get("total_label_height", DEFAULT_BAR_TOTAL_LABEL_HEIGHT),
+        int(DEFAULT_BAR_TOTAL_LABEL_HEIGHT),
+    )
+
+    category_font = _font_value(
+        overlay.get("category_label_font", DEFAULT_BAR_CATEGORY_LABEL_FONT_SIZE),
+        DEFAULT_BAR_CATEGORY_LABEL_FONT_SIZE,
+    )
+    legend_font = _font_value(
+        overlay.get("legend_label_font", DEFAULT_BAR_LEGEND_LABEL_FONT_SIZE),
+        DEFAULT_BAR_LEGEND_LABEL_FONT_SIZE,
+    )
+    total_font = _font_value(
+        overlay.get("total_label_font", DEFAULT_BAR_TOTAL_LABEL_FONT_SIZE),
+        DEFAULT_BAR_TOTAL_LABEL_FONT_SIZE,
+    )
+
+    category_color = _color(overlay.get("category_label_color"))
+    legend_color = _color(overlay.get("legend_label_color"))
+    total_color = _color(overlay.get("total_label_color"))
+
+    total_label_offsets = _number_or_none_list(overlay.get("total_label_offsets"))
+
+    legend_left_ratio = _float(
+        overlay.get("legend_left_ratio", DEFAULT_BAR_LEGEND_LEFT_RATIO),
+        float(DEFAULT_BAR_LEGEND_LEFT_RATIO),
+    )
+    legend_step_ratio = _float(
+        overlay.get("legend_step_ratio", DEFAULT_BAR_LEGEND_STEP_RATIO),
+        float(DEFAULT_BAR_LEGEND_STEP_RATIO),
+    )
+    marker_left_ratio = _float(
+        overlay.get("legend_marker_left_ratio", DEFAULT_BAR_LEGEND_MARKER_LEFT_RATIO),
+        float(DEFAULT_BAR_LEGEND_MARKER_LEFT_RATIO),
+    )
+    marker_step_ratio = _float(
+        overlay.get("legend_marker_step_ratio", DEFAULT_BAR_LEGEND_MARKER_STEP_RATIO),
+        float(DEFAULT_BAR_LEGEND_MARKER_STEP_RATIO),
+    )
+    marker_width = _int(
+        overlay.get("legend_marker_width", DEFAULT_BAR_LEGEND_MARKER_WIDTH),
+        int(DEFAULT_BAR_LEGEND_MARKER_WIDTH),
+    )
+    marker_height = _int(
+        overlay.get("legend_marker_height", DEFAULT_BAR_LEGEND_MARKER_HEIGHT),
+        int(DEFAULT_BAR_LEGEND_MARKER_HEIGHT),
+    )
+    marker_y_offset = _int(
+        overlay.get("legend_marker_y_offset", DEFAULT_BAR_LEGEND_MARKER_Y_OFFSET),
+        int(DEFAULT_BAR_LEGEND_MARKER_Y_OFFSET),
+    )
+    total_label_offset = _int(
+        overlay.get("total_label_offset", DEFAULT_BAR_TOTAL_LABEL_OFFSET),
+        int(DEFAULT_BAR_TOTAL_LABEL_OFFSET),
+    )
+    total_label_offsets_x = _number_list(overlay.get("total_label_offsets_x"))
+    category_offset = _int(
+        overlay.get("category_label_offset", DEFAULT_BAR_CATEGORY_LABEL_OFFSET),
+        int(DEFAULT_BAR_CATEGORY_LABEL_OFFSET),
+    )
+    legend_offset = _int(
+        overlay.get("legend_label_offset", DEFAULT_BAR_LEGEND_LABEL_OFFSET),
+        int(DEFAULT_BAR_LEGEND_LABEL_OFFSET),
+    )
+
+    annotations = _list(overlay.get("annotations"))
     for annotation in annotations:
-        if not isinstance(annotation, dict):
+        annotation_spec = _mapping(annotation)
+        if not annotation_spec:
             continue
-        annotation_spec = dict(annotation)
         if base_dir is not None and "_base_dir" not in annotation_spec:
             annotation_spec["_base_dir"] = base_dir
 
-        kind = (annotation_spec.get("type") or "shape").lower()
+        kind_raw = annotation_spec.get("type")
+        kind = kind_raw.lower() if isinstance(kind_raw, str) else "shape"
         if kind == "line":
             add_line_annotation(slide, annotation_spec)
         else:
             add_shape_annotation(slide, annotation_spec)
 
     text_style_template = overlay.get("text_style_template")
-    text_style_map = overlay.get("text_style_map") or {}
-    templates: dict[str, OxmlElement | None] = {}
-    template_path: Path | None = None
-    if isinstance(text_style_template, str):
+    text_style_map = _mapping(overlay.get("text_style_map"))
+
+    templates: dict[str, object] = {}
+    template_path: PathOrNone = None
+
+    if isinstance(text_style_template, Path):
+        template_path = resolve_path(str(text_style_template), base_dir)
+    elif isinstance(text_style_template, str):
         template_path = resolve_path(text_style_template, base_dir)
+
+    if template_path is not None:
         for key, sample in text_style_map.items():
             if isinstance(sample, str):
                 templates[key] = load_txbody_template(template_path, sample)
 
-    segment_values = overlay.get("segment_values") or []
+    segment_values = _sequence_matrix(overlay.get("segment_values"))
     add_bar_segment_labels(
         slide,
         overlay=overlay,
@@ -220,7 +449,10 @@ def add_bar_overlays(slide, chart_box: tuple, meta: dict) -> None:
             overlay=overlay,
             chart_box=chart_box,
             plot_bottom=plot_bottom,
-            geometry=geometry,
+            geometry={
+                "plot_left": plot_left,
+                "plot_width": plot_width,
+            },
             series_names=series_names,
             series_colors=series_colors,
             legend_width=legend_width,
