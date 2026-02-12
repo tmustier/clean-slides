@@ -5,13 +5,11 @@ Every text cell uses the same text-box structure (lstStyle + noAutofit).
 Paragraph level controls bullet style; run properties control font.
 """
 
-# pyright: reportPrivateUsage=false
-
 from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from typing import Callable, Protocol
+from typing import Any, Callable, Protocol
 
 from lxml import etree
 from pptx.oxml.shapes.groupshape import CT_GroupShape
@@ -26,7 +24,7 @@ from .constants import (
     Layout,
     TableDefaults,
 )
-from .content import Paragraph, _make_sub_paragraph, normalize_cell
+from .content import Paragraph, make_sub_paragraph, normalize_cell
 from .icons import IconSet, icon_cell_value
 from .measure import column_right_pads, should_use_line_breaks, textbox_width
 from .spec import Box, CellOverride, ChartRef, ContentArea, TableLayout, TableSpec
@@ -45,6 +43,9 @@ NS_P = "http://schemas.openxmlformats.org/presentationml/2006/main"
 NS_R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 
 
+XmlElement = Any
+
+
 class _SlidePart(Protocol):
     """Minimal protocol for a slide part that can register relationships."""
 
@@ -55,7 +56,7 @@ class _SlidePart(Protocol):
 _HEX_COLOR_RE = re.compile(r"^#?([0-9A-Fa-f]{6})$")
 
 
-def _apply_color(parent: etree._Element, color: str) -> None:
+def _apply_color(parent: XmlElement, color: str) -> None:
     """Add solidFill with either schemeClr (theme) or srgbClr (hex)."""
     fill = etree.SubElement(parent, f"{{{NS_A}}}solidFill")
     hex_match = _HEX_COLOR_RE.match(color)
@@ -217,7 +218,7 @@ class TableRenderer:
 
                 paragraphs = normalize_cell(csh.label, default, parse_bullets=False)
                 if csh.sub:
-                    paragraphs.append(_make_sub_paragraph(csh.sub, paragraphs[0]))
+                    paragraphs.append(make_sub_paragraph(csh.sub, paragraphs[0]))
                 self._add_cell(
                     box,
                     paragraphs,
@@ -549,7 +550,7 @@ class TableRenderer:
 
         self.spTree.append(sp)
 
-    def _make_textbox_sp(self, x: int, y: int, w: int, h: int, anchor: str = "t") -> etree._Element:
+    def _make_textbox_sp(self, x: int, y: int, w: int, h: int, anchor: str = "t") -> XmlElement:
         sp = etree.Element(f"{{{NS_P}}}sp")
 
         nv = etree.SubElement(sp, f"{{{NS_P}}}nvSpPr")
@@ -573,7 +574,7 @@ class TableRenderer:
         return sp
 
     def _append_paragraphs_as_br(
-        self, txBody: etree._Element, paragraphs: list[Paragraph], align: str = "l"
+        self, txBody: XmlElement, paragraphs: list[Paragraph], align: str = "l"
     ) -> None:
         """Render multiple Paragraph objects as a single <a:p> with <a:br> between them.
 
@@ -608,9 +609,7 @@ class TableRenderer:
             color = para.color or DefaultColors.BODY_TEXT
             self._add_runs(p, para.text, font, size, bold, italic, color, underline)
 
-    def _append_paragraph(
-        self, txBody: etree._Element, paragraph: Paragraph, align: str = "l"
-    ) -> None:
+    def _append_paragraph(self, txBody: XmlElement, paragraph: Paragraph, align: str = "l") -> None:
         p = etree.SubElement(txBody, f"{{{NS_A}}}p")
         pPr: dict[str, str] = {"lvl": str(paragraph.lvl or 0)}
         if align:
@@ -628,7 +627,7 @@ class TableRenderer:
 
     def _add_runs(
         self,
-        p: etree._Element,
+        p: XmlElement,
         text: str,
         font: str,
         size: int,
@@ -679,7 +678,7 @@ class TableRenderer:
 
     def _run(
         self,
-        p: etree._Element,
+        p: XmlElement,
         text: str,
         font: str,
         size: int,

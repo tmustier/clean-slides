@@ -6,9 +6,9 @@ Two categories of utilities:
   2. XML mutation — idempotent find-or-create, safe removal (prevents duplicate elements)
 """
 
-# pyright: reportPrivateUsage=false
-
 from __future__ import annotations
+
+from typing import Any
 
 from lxml import etree
 from pptx.oxml.ns import qn
@@ -33,14 +33,16 @@ NSMAP: dict[str, str] = {
     "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
 }
 
+XmlElement = Any
 
-def _el(tag: str, **attribs: str) -> etree._Element:
+
+def _el(tag: str, **attribs: str) -> XmlElement:
     """Create an element with namespace prefix"""
     ns, local = tag.split(":")
     return etree.Element(f"{{{NSMAP[ns]}}}{local}", attribs)
 
 
-def _sub(parent: etree._Element, tag: str, **attribs: str) -> etree._Element:
+def _sub(parent: XmlElement, tag: str, **attribs: str) -> XmlElement:
     """Create and append a subelement"""
     el = _el(tag, **attribs)
     parent.append(el)
@@ -52,7 +54,7 @@ def _sub(parent: etree._Element, tag: str, **attribs: str) -> etree._Element:
 # ============================================================================
 
 
-def create_placeholder_lstStyle_xml() -> etree._Element:
+def create_placeholder_lstStyle_xml() -> XmlElement:
     """
     Create the lstStyle XML with all 9 bullet levels matching the template.
     This is the key to proper bullet formatting.
@@ -124,7 +126,7 @@ def create_placeholder_lstStyle_xml() -> etree._Element:
     return lstStyle
 
 
-def create_text_placeholder_bodyPr(anchor: str = "t") -> etree._Element:
+def create_text_placeholder_bodyPr(anchor: str = "t") -> XmlElement:
     """Create bodyPr with zero insets and no autofit"""
     bodyPr = _el(
         "a:bodyPr", vert="horz", lIns="0", tIns="0", rIns="0", bIns="0", rtlCol="0", anchor=anchor
@@ -143,7 +145,7 @@ def create_moon_group_xml(
     y: int,
     level: str,
     size: int = MOON_SIZE_EMU,
-) -> etree._Element:
+) -> XmlElement:
     """
     Create a moon (RAG indicator) group XML element.
 
@@ -199,7 +201,7 @@ def create_moon_group_xml(
     return grpSp
 
 
-def _create_moon_oval(x: int, y: int, size: int, filled: bool) -> etree._Element:
+def _create_moon_oval(x: int, y: int, size: int, filled: bool) -> XmlElement:
     """Create the background oval for a moon"""
     sp = _el("p:sp")
 
@@ -248,7 +250,7 @@ def _create_moon_oval(x: int, y: int, size: int, filled: bool) -> etree._Element
     return sp
 
 
-def _create_moon_arc(x: int, y: int, size: int, fill_pct: int) -> etree._Element:
+def _create_moon_arc(x: int, y: int, size: int, fill_pct: int) -> XmlElement:
     """Create the arc shape for partial moon fill"""
     arc_adj = MOON_ARC_ADJUSTMENTS.get(fill_pct)
     if arc_adj is None:
@@ -306,7 +308,7 @@ def create_line_xml(
     width: int,
     weight_emu: int = 6350,  # 0.5pt (= Pt(0.5) in EMU)
     color_scheme: str = "tx1",  # 'tx1' = Midnight
-) -> etree._Element:
+) -> XmlElement:
     """Create a horizontal line connector"""
     cxnSp = _el("p:cxnSp")
 
@@ -337,7 +339,7 @@ def create_line_xml(
 # ============================================================================
 
 
-def find_or_create(parent: etree._Element, tag: str) -> etree._Element:
+def find_or_create(parent: XmlElement, tag: str) -> XmlElement:
     """
     Find existing child or create it. Tag uses short form: 'c:autoTitleDeleted'.
 
@@ -351,7 +353,7 @@ def find_or_create(parent: etree._Element, tag: str) -> etree._Element:
     return el
 
 
-def set_child_val(parent: etree._Element, tag: str, val: object) -> etree._Element:
+def set_child_val(parent: XmlElement, tag: str, val: object) -> XmlElement:
     """
     Find-or-create child element and set its 'val' attribute.
 
@@ -362,7 +364,7 @@ def set_child_val(parent: etree._Element, tag: str, val: object) -> etree._Eleme
     return el
 
 
-def remove_children(parent: etree._Element, *tags: str) -> None:
+def remove_children(parent: XmlElement, *tags: str) -> None:
     """
     Remove all children matching any of the given tags.
 
@@ -374,12 +376,12 @@ def remove_children(parent: etree._Element, *tags: str) -> None:
             parent.remove(child)
 
 
-def remove_noFill(spPr: etree._Element) -> None:
+def remove_noFill(spPr: XmlElement) -> None:
     """Remove noFill from an spPr element."""
     remove_children(spPr, "a:noFill")
 
 
-def clear_children(parent: etree._Element) -> None:
+def clear_children(parent: XmlElement) -> None:
     """Remove all children from an element."""
     for child in list(parent):
         parent.remove(child)
@@ -390,13 +392,13 @@ def remove_shape_style(shape: BaseShape) -> None:
     Remove p:style element that python-pptx auto-adds to shapes.
     This causes default shadows/effects that don't match clean templates.
     """
-    sp: etree._Element = shape.element
+    sp: XmlElement = shape.element
     style = sp.find(qn("p:style"))
     if style is not None:
         sp.remove(style)
 
 
-def dump_xml(element: etree._Element, pretty: bool = True) -> str:
+def dump_xml(element: XmlElement, pretty: bool = True) -> str:
     """
     Return XML string for an element. Useful for debugging.
 
