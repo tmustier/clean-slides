@@ -54,7 +54,7 @@ class ConstraintSolver:
         row_heights: list[int] = []
         col_warns: list[SizingWarning] = []
         row_warns: list[SizingWarning] = []
-        fonts: FontConfig = self._resolve_fonts(spec, options)
+        fonts: FontConfig = self.resolve_fonts(spec, options)
 
         max_delta = max(original_body - options.min_font_pt, 0)
 
@@ -67,7 +67,7 @@ class ConstraintSolver:
                 pad_top=options.pad_top,
                 pad_bottom=options.pad_bottom,
             )
-            fonts = self._resolve_fonts(spec, trial)
+            fonts = self.resolve_fonts(spec, trial)
             col_widths, col_warns = self.columns.size(
                 spec,
                 area.width,
@@ -119,6 +119,10 @@ class ConstraintSolver:
         verifier = LayoutVerifier(layout, area)
         report.issues += verifier.run_all(spec, self.metrics).issues
         return layout, report
+
+    def resolve_fonts(self, spec: TableSpec, options: SolveOptions) -> FontConfig:
+        """Return resolved font configuration for a table spec."""
+        return self._resolve_fonts(spec, options)
 
     # -- helpers --
 
