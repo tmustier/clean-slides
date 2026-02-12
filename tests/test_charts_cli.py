@@ -1,8 +1,3 @@
-# pyright: reportUnknownMemberType=false
-# pyright: reportUnknownVariableType=false
-# pyright: reportUnknownArgumentType=false
-# pyright: reportAttributeAccessIssue=false
-
 from __future__ import annotations
 
 import copy
@@ -33,13 +28,31 @@ def _write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def _to_str_dict(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+
+    result: dict[str, object] = {}
+    for key, item in cast(dict[object, object], value).items():
+        if isinstance(key, str):
+            result[key] = item
+    return result
+
+
 def _chart_types(path: Path) -> list[int]:
     prs = Presentation(str(path))
     chart_types: list[int] = []
     for slide in prs.slides:
         for shape in slide.shapes:
-            if shape.has_chart:
-                chart_types.append(int(shape.chart.chart_type))
+            if not bool(getattr(shape, "has_chart", False)):
+                continue
+            chart = getattr(shape, "chart", None)
+            if chart is None:
+                continue
+            chart_type = getattr(chart, "chart_type", None)
+            if chart_type is None:
+                continue
+            chart_types.append(int(chart_type))
     return chart_types
 
 
@@ -93,25 +106,28 @@ class _FakeEngine:
     def normalize_chart_specs(
         self, raw: object
     ) -> tuple[list[dict[str, object]], dict[str, object]]:
-        if isinstance(raw, dict) and "charts" in raw:
-            charts_raw = raw.get("charts")
-            charts: list[dict[str, object]] = []
-            if isinstance(charts_raw, list):
-                for item in charts_raw:
-                    if isinstance(item, dict):
-                        charts.append(copy.deepcopy(item))
-            deck_meta = {key: value for key, value in raw.items() if key != "charts"}
-            return charts, deck_meta
+        if isinstance(raw, dict):
+            raw_dict = _to_str_dict(cast(object, raw))
+            if "charts" in raw_dict:
+                charts_raw = raw_dict.get("charts")
+                charts: list[dict[str, object]] = []
+                if isinstance(charts_raw, list):
+                    for item in cast(list[object], charts_raw):
+                        chart_spec = _to_str_dict(item)
+                        if chart_spec:
+                            charts.append(copy.deepcopy(chart_spec))
+                deck_meta = {key: value for key, value in raw_dict.items() if key != "charts"}
+                return charts, deck_meta
+
+            return [copy.deepcopy(raw_dict)], {}
 
         if isinstance(raw, list):
-            charts = []
-            for item in raw:
-                if isinstance(item, dict):
-                    charts.append(copy.deepcopy(item))
+            charts: list[dict[str, object]] = []
+            for item in cast(list[object], raw):
+                chart_spec = _to_str_dict(item)
+                if chart_spec:
+                    charts.append(copy.deepcopy(chart_spec))
             return charts, {}
-
-        if isinstance(raw, dict):
-            return [copy.deepcopy(raw)], {}
 
         return [], {}
 
