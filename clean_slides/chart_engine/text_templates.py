@@ -3,16 +3,33 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Union, cast
+from typing import Protocol, cast
 
 from pptx import Presentation
 from pptx.oxml.ns import qn
 
 from ..pptx_access import shape_has_text_frame, shape_text, shape_xml_element
 
+
+class _XmlElementLike(Protocol):
+    text: str | None
+
+    def find(self, path: str) -> object | None: ...
+
+    def iter(self, tag: str) -> Iterable[object]: ...
+
+    def append(self, element: object) -> None: ...
+
+    def getparent(self) -> object | None: ...
+
+
+class _XmlParentLike(Protocol):
+    def replace(self, old: object, new: object) -> None: ...
+
+
 TxBodyTemplate = object
-PathOrNone = Union[Path, None]
 
 _TEXT_STYLE_CACHE: dict[tuple[str, str], TxBodyTemplate] = {}
 
@@ -39,7 +56,7 @@ def load_txbody_template(template_path: Path, sample_text: str) -> TxBodyTemplat
             if shape_element is None:
                 continue
 
-            shape_element_obj = cast(Any, shape_element)
+            shape_element_obj = cast(_XmlElementLike, shape_element)
             tx_body = shape_element_obj.find(qn("p:txBody"))
             if tx_body is None:
                 continue
@@ -51,32 +68,36 @@ def load_txbody_template(template_path: Path, sample_text: str) -> TxBodyTemplat
     return None
 
 
-def apply_txbody_template(box: Any, template: TxBodyTemplate | None, text: str | None) -> None:
+def apply_txbody_template(box: object, template: TxBodyTemplate | None, text: str | None) -> None:
     if template is None:
         return
 
     tx_body = copy.deepcopy(template)
+    tx_body_element = cast(_XmlElementLike, tx_body)
+
     if text is not None:
-        tx_body_element = cast(Any, tx_body)
-        for t_elem in tx_body_element.iter(qn("a:t")):
+        for t_elem_obj in tx_body_element.iter(qn("a:t")):
+            t_elem = cast(_XmlElementLike, t_elem_obj)
             t_elem.text = text
 
     box_element = shape_xml_element(box)
     if box_element is None:
         return
 
-    box_element_obj = cast(Any, box_element)
+    box_element_obj = cast(_XmlElementLike, box_element)
     existing = box_element_obj.find(qn("p:txBody"))
     if existing is not None:
-        parent = existing.getparent()
+        existing_el = cast(_XmlElementLike, existing)
+        parent = existing_el.getparent()
         if parent is not None:
-            parent.replace(existing, tx_body)
+            parent_el = cast(_XmlParentLike, parent)
+            parent_el.replace(existing_el, tx_body)
     else:
         box_element_obj.append(tx_body)
 
 
 def resolve_txbody_template(
-    template_path: PathOrNone,
+    template_path: Path | None,
     text: str,
     fallback: TxBodyTemplate | None,
 ) -> TxBodyTemplate | None:
