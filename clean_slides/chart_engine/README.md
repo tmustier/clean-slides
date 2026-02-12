@@ -78,6 +78,6 @@ From repo root:
 
 ## Next decomposition targets
 
-- Continue reducing local pyright suppressions by tightening internal helper types.
-- Add dedicated chart-engine smoke tests at the module boundary (builder + overlays).
+- Keep adding dedicated chart-engine smoke tests at the module boundary (builder + overlays).
+- Continue simplifying internal coercion helpers now that per-file pyright suppressions are removed.
 - Keep trimming compatibility glue in `chart_generator.py` as typed wrappers absorb more behavior.
