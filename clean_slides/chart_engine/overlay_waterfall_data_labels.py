@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Union, cast
+from typing import Protocol, Union, cast
 
 from pptx.oxml.ns import qn
 from pptx.oxml.xmlchemy import OxmlElement
 
+from ..pptx_access import chart_xml_space
 from .defaults import (
     DEFAULT_WATERFALL_DLABEL_INSIDE_OFFSET_RATIO,
     DEFAULT_WATERFALL_DLABEL_MIN_INSIDE_RATIO,
@@ -35,6 +36,26 @@ FloatOrNone = Union[float, None]
 ChartBox = tuple[int, int, int, int]
 LabelKey = tuple[int, int]
 LabelLayout = dict[str, float]
+
+
+class _XmlElementLike(Protocol):
+    tag: str
+
+    def find(self, path: str) -> object | None: ...
+
+    def findall(self, path: str) -> list[object]: ...
+
+    def append(self, element: object) -> None: ...
+
+    def insert(self, index: int, element: object) -> None: ...
+
+    def index(self, element: object) -> int: ...
+
+    def remove(self, element: object) -> None: ...
+
+    def set(self, key: str, value: str) -> None: ...
+
+    def __iter__(self) -> Iterator[object]: ...
 
 
 @dataclass
@@ -168,17 +189,25 @@ def _label_at(values: Sequence[FloatOrNone], index: int) -> FloatOrNone:
     return values[index]
 
 
-def get_chart_series(chart_space: Any) -> list[Any]:
-    chart = chart_space.find(qn("c:chart"))
-    if chart is None:
+def get_chart_series(chart_space: object) -> list[object]:
+    chart_space_el = cast(_XmlElementLike, chart_space)
+
+    chart_obj = chart_space_el.find(qn("c:chart"))
+    if chart_obj is None:
         return []
-    plot_area = chart.find(qn("c:plotArea"))
-    if plot_area is None:
+    chart_el = cast(_XmlElementLike, chart_obj)
+
+    plot_area_obj = chart_el.find(qn("c:plotArea"))
+    if plot_area_obj is None:
         return []
-    bar_chart = plot_area.find(qn("c:barChart"))
-    if bar_chart is None:
+    plot_area = cast(_XmlElementLike, plot_area_obj)
+
+    bar_chart_obj = plot_area.find(qn("c:barChart"))
+    if bar_chart_obj is None:
         return []
-    return cast(list[Any], bar_chart.findall(qn("c:ser")))
+    bar_chart = cast(_XmlElementLike, bar_chart_obj)
+
+    return list(bar_chart.findall(qn("c:ser")))
 
 
 def measure_label_width(text: str) -> int:
@@ -186,36 +215,40 @@ def measure_label_width(text: str) -> int:
     return int(DEFAULT_WATERFALL_LABEL_WIDTH_BASE + DEFAULT_WATERFALL_LABEL_WIDTH_PER_CHAR * length)
 
 
-def _ensure_dlbls(series_element: Any) -> Any:
-    dlbls = series_element.find(qn("c:dLbls"))
-    if dlbls is not None:
-        return dlbls
+def _ensure_dlbls(series_element: object) -> object:
+    series_el = cast(_XmlElementLike, series_element)
+    dlbls_obj = series_el.find(qn("c:dLbls"))
+    if dlbls_obj is not None:
+        return dlbls_obj
 
     dlbls = OxmlElement("c:dLbls")
-    insert_at = series_element.find(qn("c:val"))
-    if insert_at is not None:
-        series_element.insert(series_element.index(insert_at), dlbls)
+    insert_at_obj = series_el.find(qn("c:val"))
+    if insert_at_obj is not None:
+        series_el.insert(series_el.index(insert_at_obj), dlbls)
     else:
-        series_element.append(dlbls)
+        series_el.append(dlbls)
     return dlbls
 
 
-def _set_child_val(parent: Any, tag: str, value: Union[str, int]) -> Any:
-    elem = parent.find(qn(tag))
-    if elem is None:
-        elem = OxmlElement(tag)
-        parent.append(elem)
+def _set_child_val(parent: object, tag: str, value: Union[str, int]) -> object:
+    parent_el = cast(_XmlElementLike, parent)
+    elem_obj = parent_el.find(qn(tag))
+    if elem_obj is None:
+        elem_obj = OxmlElement(tag)
+        parent_el.append(elem_obj)
+
+    elem = cast(_XmlElementLike, elem_obj)
     elem.set("val", str(value))
     return elem
 
 
 def _add_dlbl(
-    dlbls: Any,
+    dlbls: object,
     point_idx: int,
     show_val: bool = True,
     manual_x: Union[float, None] = None,
     manual_y: Union[float, None] = None,
-) -> Any:
+) -> object:
     dlbl = OxmlElement("c:dLbl")
     idx_el = OxmlElement("c:idx")
     idx_el.set("val", str(point_idx))
@@ -242,7 +275,9 @@ def _add_dlbl(
     _set_child_val(dlbl, "c:showSerName", 0)
     _set_child_val(dlbl, "c:showPercent", 0)
     _set_child_val(dlbl, "c:showBubbleSize", 0)
-    dlbls.append(dlbl)
+
+    dlbls_el = cast(_XmlElementLike, dlbls)
+    dlbls_el.append(dlbl)
     return dlbl
 
 
@@ -416,7 +451,7 @@ def apply_waterfall_data_label_layout(
                 "y": dy / plot_height if plot_height else 0.0,
             }
 
-    chart_space = getattr(chart, "_chartSpace", None)
+    chart_space = chart_xml_space(chart)
     if chart_space is None:
         return
 
@@ -429,18 +464,20 @@ def apply_waterfall_data_label_layout(
     if 0 <= offset_idx < len(series_elements):
         series_element = series_elements[offset_idx]
         dlbls = _ensure_dlbls(series_element)
+        dlbls_el = cast(_XmlElementLike, dlbls)
 
-        for child in list(dlbls):
+        for child_obj in list(dlbls_el):
+            child = cast(_XmlElementLike, child_obj)
             if child.tag == qn("c:dLbl"):
-                dlbls.remove(child)
+                dlbls_el.remove(child)
 
-        _set_child_val(dlbls, "c:dLblPos", "ctr")
-        _set_child_val(dlbls, "c:showLegendKey", 0)
-        _set_child_val(dlbls, "c:showVal", 0)
-        _set_child_val(dlbls, "c:showCatName", 0)
-        _set_child_val(dlbls, "c:showSerName", 0)
-        _set_child_val(dlbls, "c:showPercent", 0)
-        _set_child_val(dlbls, "c:showBubbleSize", 0)
+        _set_child_val(dlbls_el, "c:dLblPos", "ctr")
+        _set_child_val(dlbls_el, "c:showLegendKey", 0)
+        _set_child_val(dlbls_el, "c:showVal", 0)
+        _set_child_val(dlbls_el, "c:showCatName", 0)
+        _set_child_val(dlbls_el, "c:showSerName", 0)
+        _set_child_val(dlbls_el, "c:showPercent", 0)
+        _set_child_val(dlbls_el, "c:showBubbleSize", 0)
 
         default_manual_y = default_dy / plot_height if plot_height else 0.0
 
@@ -449,7 +486,7 @@ def apply_waterfall_data_label_layout(
             manual_x = layout.get("x", 0.0) if layout else 0.0
             manual_y = layout.get("y", default_manual_y) if layout else default_manual_y
             _add_dlbl(
-                dlbls,
+                dlbls_el,
                 idx,
                 show_val=True,
                 manual_x=manual_x,

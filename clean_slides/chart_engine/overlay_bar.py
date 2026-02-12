@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Callable, Union, cast
+from typing import Callable, Union, cast
 
 from pptx.dml.color import RGBColor
 from pptx.util import Pt
@@ -51,8 +51,8 @@ FontValue = Union[Pt, int, float]
 OverlaySpec = Mapping[str, object]
 MetaSpec = Mapping[str, object]
 
-AddLineAnnotationFn = Callable[[Any, dict[str, object]], None]
-AddShapeAnnotationFn = Callable[[Any, dict[str, object]], None]
+AddLineAnnotationFn = Callable[[object, dict[str, object]], None]
+AddShapeAnnotationFn = Callable[[object, dict[str, object]], None]
 LoadTemplateFn = Callable[[Path, str], object]
 
 
@@ -218,7 +218,7 @@ def _plot_layout(value: object) -> dict[str, float]:
 
 
 def add_bar_overlays(
-    slide: Any,
+    slide: object,
     chart_box: tuple[int, int, int, int],
     meta: MetaSpec,
 ) -> None:

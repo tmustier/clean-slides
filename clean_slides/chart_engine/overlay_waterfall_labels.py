@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any, Callable, Union, cast
+from typing import Callable, Union, cast
 
 from pptx.enum.text import PP_ALIGN
 
@@ -195,7 +195,7 @@ def build_waterfall_value_label_specs(
     return label_specs
 
 
-def add_waterfall_value_labels(slide: Any, label_specs: Sequence[LabelSpec]) -> None:
+def add_waterfall_value_labels(slide: object, label_specs: Sequence[LabelSpec]) -> None:
     """Render prepared value-label specs."""
     for spec in label_specs:
         text = spec.get("text")
@@ -230,7 +230,7 @@ def add_waterfall_value_labels(slide: Any, label_specs: Sequence[LabelSpec]) -> 
 
 
 def add_waterfall_category_labels(
-    slide: Any,
+    slide: object,
     categories: Sequence[object],
     chart_box: tuple[int, int, int, int],
     geometry: Geometry,
@@ -289,7 +289,7 @@ def add_waterfall_category_labels(
 
 
 def add_waterfall_series_labels(
-    slide: Any,
+    slide: object,
     chart_box: tuple[int, int, int, int],
     chart_series_names: Sequence[object],
     segment_values: Mapping[object, object],

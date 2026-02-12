@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Union, cast
+from typing import Union, cast
 
 from pptx.dml.color import RGBColor
 from pptx.util import Emu, Pt
@@ -110,7 +110,7 @@ def _index_set(value: object) -> set[int]:
 
 
 def add_waterfall_overlays(
-    slide: Any,
+    slide: object,
     chart_box: tuple[int, int, int, int],
     meta: Mapping[str, object],
     slide_size: SlideSize = None,
