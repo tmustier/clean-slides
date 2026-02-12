@@ -5,8 +5,10 @@ from dataclasses import dataclass
 from clean_slides.pptx_access import (
     chart_series_names,
     chart_type_value,
+    chart_xml_space,
     iter_shapes,
     iter_slides,
+    paragraph_xml_element,
     presentation_chart_types,
     set_text_frame_text,
     shape_chart,
@@ -33,12 +35,18 @@ class _Series:
 class _Chart:
     chart_type: int
     series: list[_Series]
+    _chartSpace: object | None = None
 
 
 @dataclass
 class _TextFrame:
     text: str
     paragraphs: list[object]
+
+
+@dataclass
+class _Paragraph:
+    _element: object
 
 
 @dataclass
@@ -86,7 +94,7 @@ def test_shape_and_text_frame_helpers_cover_text_placeholder_connector() -> None
     text_frame = _TextFrame(text="  Hello  ", paragraphs=[object()])
     shape = _Shape(
         has_chart=True,
-        chart=_Chart(chart_type=57, series=[_Series(name="Revenue")]),
+        chart=_Chart(chart_type=57, series=[_Series(name="Revenue")], _chartSpace={"tag": "cs"}),
         has_text_frame=True,
         text_frame=text_frame,
         text="inline",
@@ -113,6 +121,11 @@ def test_shape_and_text_frame_helpers_cover_text_placeholder_connector() -> None
     assert shape_is_placeholder(shape) is True
     assert shape_has_connector_endpoints(shape) is True
     assert shape_xml_element(shape) == {"tag": "shape"}
+
+    assert chart_xml_space(chart) == {"tag": "cs"}
+
+    paragraph = _Paragraph(_element={"tag": "p"})
+    assert paragraph_xml_element(paragraph) == {"tag": "p"}
 
     set_text_frame_text(frame, "Updated")
     assert text_frame.text == "Updated"

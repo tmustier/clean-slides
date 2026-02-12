@@ -148,6 +148,16 @@ def shape_xml_element(shape: object) -> object | None:
     return getattr(shape, "_element", None)
 
 
+def paragraph_xml_element(paragraph: object) -> object | None:
+    """Return underlying OOXML paragraph element when available."""
+    return getattr(paragraph, "_element", None)
+
+
+def chart_xml_space(chart: object) -> object | None:
+    """Return underlying OOXML chart-space element when available."""
+    return getattr(chart, "_chartSpace", None)
+
+
 def shape_has_connector_endpoints(shape: object) -> bool:
     """Return whether shape exposes connector endpoints."""
     return getattr(shape, "begin_x", None) is not None and getattr(shape, "end_x", None) is not None

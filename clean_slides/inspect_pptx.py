@@ -15,7 +15,6 @@ from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.enum.text import PP_PARAGRAPH_ALIGNMENT
 from pptx.oxml.chart.chart import CT_ChartSpace
 from pptx.oxml.ns import qn
-from pptx.oxml.text import CT_TextParagraph
 from pptx.presentation import Presentation
 from pptx.shapes.autoshape import Shape as PptxShape
 from pptx.shapes.base import BaseShape
@@ -23,6 +22,8 @@ from pptx.shapes.graphfrm import GraphicFrame
 from pptx.slide import Slide, SlideLayout
 from pptx.text.text import TextFrame
 from typing_extensions import TypeGuard
+
+from .pptx_access import chart_xml_space, paragraph_xml_element
 
 # ── Helpers ────────────────────────────────────────────────────────────
 
@@ -206,12 +207,8 @@ class _ParagraphLike(Protocol):
     @property
     def level(self) -> int: ...
 
-    _element: CT_TextParagraph
-
 
 class _ChartLike(Protocol):
-    _chartSpace: CT_ChartSpace
-
     @property
     def has_legend(self) -> bool: ...
 
@@ -225,11 +222,17 @@ class _ChartFrameLike(Protocol):
 
 
 def _chart_space(chart: _ChartLike) -> CT_ChartSpace:
-    return cast(CT_ChartSpace, object.__getattribute__(chart, "_chartSpace"))
+    chart_space = chart_xml_space(chart)
+    if chart_space is None:
+        raise ValueError("Chart object missing _chartSpace")
+    return cast(CT_ChartSpace, chart_space)
 
 
 def _paragraph_xml(paragraph: _ParagraphLike) -> XmlElement:
-    return object.__getattribute__(paragraph, "_element")
+    paragraph_el = paragraph_xml_element(paragraph)
+    if paragraph_el is None:
+        raise ValueError("Paragraph object missing _element")
+    return paragraph_el
 
 
 # ── Data classes ───────────────────────────────────────────────────────
