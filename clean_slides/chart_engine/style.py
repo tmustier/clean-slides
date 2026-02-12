@@ -31,6 +31,16 @@ def _float(value: object, default: float = 0.0) -> float:
     return float(_number(value, default))
 
 
+def _str_or_none(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _color(value: object) -> ColorValue:
+    if isinstance(value, (RGBColor, str)):
+        return value
+    return None
+
+
 def _offset_points(value: object) -> list[tuple[int, str]]:
     points: list[tuple[int, str]] = []
     if not isinstance(value, list):
@@ -262,8 +272,8 @@ def apply_waterfall_chart_style(chart: Any, meta: Mapping[str, object]) -> None:
         chart,
         _float(meta.get("axis_min")) if meta.get("axis_min") is not None else None,
         _float(meta.get("axis_max")) if meta.get("axis_max") is not None else None,
-        cast(ColorValue, meta.get("axis_line_color")),
-        cast(str | None, meta.get("orientation")),
+        _color(meta.get("axis_line_color")),
+        _str_or_none(meta.get("orientation")),
     )
     apply_plot_layout(chart, meta.get("plot_layout"))
 
@@ -278,8 +288,8 @@ def apply_bar_chart_style(chart: Any, meta: Mapping[str, object]) -> None:
         chart,
         _float(meta.get("axis_min")) if meta.get("axis_min") is not None else None,
         _float(meta.get("axis_max")) if meta.get("axis_max") is not None else None,
-        cast(ColorValue, meta.get("axis_line_color")),
-        cast(str | None, meta.get("orientation")),
+        _color(meta.get("axis_line_color")),
+        _str_or_none(meta.get("orientation")),
     )
 
     border_color_raw = meta.get("series_border_color", DEFAULT_BAR_SERIES_BORDER_COLOR)
