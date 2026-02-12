@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+from collections.abc import Callable
+from typing import Any, cast
 
 from clean_slides.constants import Fonts, TableDefaults
 from clean_slides.measure import column_right_pads
@@ -17,6 +19,10 @@ FONTS = FontConfig(
 )
 
 PAD = int(TableDefaults.CELL_PADDING)
+
+
+def _protected_attr(target: object, name: str) -> Any:
+    return object.__getattribute__(target, name)
 
 
 class TestColumnSizer(unittest.TestCase):
@@ -87,7 +93,7 @@ class TestColumnSizer(unittest.TestCase):
 
         label_w = int(
             metrics.text_width_no_wrap("CAGR", Fonts.HEADLINE, FONTS.header_size_pt)
-            * float(getattr(ColumnSizer, "_BOLD_FACTOR"))
+            * float(_protected_attr(ColumnSizer, "_BOLD_FACTOR"))
         )
         sub_w = metrics.text_width_no_wrap("%, FY26-33E", Fonts.HEADLINE, FONTS.header_size_pt)
         expected_min = int(max(label_w, sub_w) * 1.10) + PAD * 4
@@ -121,7 +127,11 @@ class TestColumnSizer(unittest.TestCase):
         area = ContentArea.from_layout("default")
         sizer = ColumnSizer()
 
-        mins = getattr(sizer, "_min_widths")(spec, area.width, metrics, FONTS, warnings=[])
+        min_widths = cast(
+            Callable[..., list[int]],
+            _protected_attr(sizer, "_min_widths"),
+        )
+        mins = min_widths(spec, area.width, metrics, FONTS, warnings=[])
         pads = column_right_pads(spec.num_cols + 1, PAD, spec.has_row_header)
         min_row_header_with_pad = mins[0] + pads[0]
 
@@ -160,8 +170,12 @@ class TestColumnSizer(unittest.TestCase):
         metrics = TextMetrics()
         sizer = ColumnSizer()
 
-        pref_base = getattr(sizer, "_row_header_preferred_width")(base_spec, metrics, FONTS)
-        pref_with_super = getattr(sizer, "_row_header_preferred_width")(with_super, metrics, FONTS)
+        row_header_pref_width = cast(
+            Callable[..., int],
+            _protected_attr(sizer, "_row_header_preferred_width"),
+        )
+        pref_base = row_header_pref_width(base_spec, metrics, FONTS)
+        pref_with_super = row_header_pref_width(with_super, metrics, FONTS)
 
         self.assertEqual(pref_with_super, pref_base)
 
@@ -192,7 +206,11 @@ class TestRowSizer(unittest.TestCase):
         target = 4301632
         min_h = int(TableDefaults.MIN_ROW_HEIGHT)
 
-        getattr(RowSizer, "_rebalance_body_heights")(body, target, min_h)
+        rebalance_body_heights = cast(
+            Callable[..., None],
+            _protected_attr(RowSizer, "_rebalance_body_heights"),
+        )
+        rebalance_body_heights(body, target, min_h)
 
         self.assertEqual(sum(body), target)
         self.assertGreaterEqual(min(body), min_h)
@@ -206,7 +224,11 @@ class TestRowSizer(unittest.TestCase):
         target = 900000
         min_h = int(TableDefaults.MIN_ROW_HEIGHT)
 
-        getattr(RowSizer, "_rebalance_body_heights")(body, target, min_h)
+        rebalance_body_heights = cast(
+            Callable[..., None],
+            _protected_attr(RowSizer, "_rebalance_body_heights"),
+        )
+        rebalance_body_heights(body, target, min_h)
 
         self.assertEqual(sum(body), target)
         self.assertLessEqual(max(body) - min(body), 1)
@@ -234,7 +256,11 @@ class TestRowSizer(unittest.TestCase):
         required = [200000, 500000]
         text_widths = [300000, 300000, 300000]
 
-        getattr(RowSizer, "_inflate_grouped_header_requirements")(
+        inflate_grouped_header_requirements = cast(
+            Callable[..., None],
+            _protected_attr(RowSizer, "_inflate_grouped_header_requirements"),
+        )
+        inflate_grouped_header_requirements(
             spec,
             required,
             text_widths,
@@ -264,7 +290,11 @@ class TestSolverFontResolution(unittest.TestCase):
         )
         solver = ConstraintSolver(TextMetrics())
 
-        fonts = getattr(solver, "_resolve_fonts")(
+        resolve_fonts = cast(
+            Callable[..., FontConfig],
+            _protected_attr(solver, "_resolve_fonts"),
+        )
+        fonts = resolve_fonts(
             spec,
             SolveOptions(body_font_pt=12, header_font_pt=16),
         )
@@ -287,7 +317,11 @@ class TestSolverFontResolution(unittest.TestCase):
         )
         solver = ConstraintSolver(TextMetrics())
 
-        fonts = getattr(solver, "_resolve_fonts")(
+        resolve_fonts = cast(
+            Callable[..., FontConfig],
+            _protected_attr(solver, "_resolve_fonts"),
+        )
+        fonts = resolve_fonts(
             spec,
             SolveOptions(body_font_pt=12, header_font_pt=16),
         )
