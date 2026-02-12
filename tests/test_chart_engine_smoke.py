@@ -98,3 +98,33 @@ def test_build_chart_waterfall_with_overlays_smoke(tmp_path: Path) -> None:
     texts = _shape_texts(output_path)
     assert "Start" in texts
     assert "End" in texts
+
+
+def test_build_chart_defers_chart_template_copy_replacement(tmp_path: Path) -> None:
+    template_path = tmp_path / "template-without-charts.pptx"
+    Presentation().save(str(template_path))
+
+    output_path = tmp_path / "deferred-template-copy.pptx"
+    spec: dict[str, object] = {
+        "type": "clustered",
+        "categories": ["A"],
+        "series": [{"name": "S1", "values": [1], "color": "accent1"}],
+        "bar": {
+            "chart_template": str(template_path),
+            "chart_template_copy": True,
+        },
+    }
+
+    prs = Presentation()
+    replacements = build_chart(
+        prs,
+        spec,
+        output_path,
+        save=False,
+        defer_template_copy=True,
+    )
+
+    assert len(replacements) == 1
+    replacement = replacements[0]
+    assert replacement.template_path == template_path
+    assert replacement.chart_part.startswith("ppt/charts/chart")
