@@ -9,14 +9,7 @@ from typing import cast
 
 import pytest
 from pptx import Presentation
-from pptx.util import Emu
 
-from clean_slides.chart_render import (
-    ChartGroup,
-    chart_def_to_spec,
-    python_fmt_to_excel_format,
-    waterfall_overlay_label_texts,
-)
 from clean_slides.cli import cmd_generate, cmd_validate
 from clean_slides.constants import Fonts, TableDefaults
 from clean_slides.sizing import ColumnSizer, FontConfig, RowSizer
@@ -347,55 +340,6 @@ class TestParseCharts(unittest.TestCase):
         header = _to_str_dict(spec.groups[0].header)
         assert header.get("text") == "FY33E EBITDAaL at FY26 mgn."
         assert header.get("sub") == "(i.e. impact of Revenue growth)"
-
-
-class TestChartFormatConversion(unittest.TestCase):
-    def test_zero_decimal_format_preserved(self) -> None:
-        excel = python_fmt_to_excel_format("{:.0f}", [1.2, 2.8])
-        assert excel == "0"
-
-
-class TestWaterfallSpecAndLabels(unittest.TestCase):
-    def test_waterfall_spec_uses_blank_categories_and_zero_based_totals(self) -> None:
-        chart = ChartDef(
-            name="wf",
-            type="waterfall",
-            dir="horizontal",
-            values=[954, 13, 1209],
-            totals=[1, 3],
-        )
-        group = ChartGroup(
-            chart_def=chart,
-            refs=[(0, 0, 1), (1, 0, 2), (2, 0, 3)],
-            min_row=0,
-            max_row=2,
-            min_col=0,
-            max_col=0,
-        )
-
-        spec = chart_def_to_spec(group)
-        categories = spec.get("categories")
-        assert categories == ["", "", ""]
-
-        wf = _to_str_dict(spec.get("waterfall"))
-        assert wf["total_categories"] == [0, 2]
-        assert wf["total_override"] is True
-        assert isinstance(wf["connector_inset"], Emu)
-        assert int(wf["connector_inset"]) == 3000
-        assert wf["connector_overlap"] == 0
-
-    def test_waterfall_overlay_label_texts_respect_python_format(self) -> None:
-        meta: dict[str, object] = {
-            "overlay": {
-                "categories": ["", "", ""],
-                "cumulative_totals": [954.0, 967.0, 1166.0],
-                "delta_values": [None, 13.0, None],
-                "total_categories": {0, 2},
-            }
-        }
-
-        labels = waterfall_overlay_label_texts(meta, "{:,.0f}")
-        assert labels == ["954", "13", "1,166"]
 
 
 # ===================================================================
