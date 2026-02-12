@@ -158,6 +158,149 @@ def chart_xml_space(chart: object) -> object | None:
     return getattr(chart, "_chartSpace", None)
 
 
+def chart_xml_element(chart: object) -> object | None:
+    """Return underlying OOXML chart element when available."""
+    return getattr(chart, "_element", None)
+
+
+class _AddChartCallable(Protocol):
+    def __call__(
+        self,
+        chart_type: object,
+        x: object,
+        y: object,
+        cx: object,
+        cy: object,
+        chart_data: object,
+    ) -> object: ...
+
+
+def slide_add_chart(
+    slide: object,
+    chart_type: object,
+    x: object,
+    y: object,
+    cx: object,
+    cy: object,
+    chart_data: object,
+) -> object | None:
+    """Add a chart to a slide when supported and return the chart frame."""
+    shapes = getattr(slide, "shapes", None)
+    add_chart = getattr(shapes, "add_chart", None)
+    if not callable(add_chart):
+        return None
+    add_chart_fn = cast(_AddChartCallable, add_chart)
+    return add_chart_fn(chart_type, x, y, cx, cy, chart_data)
+
+
+class _MutableChartLegend(Protocol):
+    has_legend: bool
+
+
+def set_chart_has_legend(chart: object, has_legend: bool) -> None:
+    """Set chart legend visibility."""
+    mutable_chart = cast(_MutableChartLegend, chart)
+    mutable_chart.has_legend = has_legend
+
+
+def chart_series(chart: object) -> list[object]:
+    """Return chart series objects."""
+    return _iter_objects(getattr(chart, "series", None))
+
+
+def chart_plots(chart: object) -> list[object]:
+    """Return chart plot objects."""
+    return _iter_objects(getattr(chart, "plots", None))
+
+
+def chart_first_plot(chart: object) -> object | None:
+    """Return chart first plot when present."""
+    plots = chart_plots(chart)
+    return plots[0] if plots else None
+
+
+class _MutablePlotDataLabels(Protocol):
+    has_data_labels: bool
+
+
+class _PlotDataLabels(Protocol):
+    @property
+    def data_labels(self) -> object: ...
+
+
+def set_plot_has_data_labels(plot: object, has_data_labels: bool) -> None:
+    """Set data-label visibility for a chart plot."""
+    mutable_plot = cast(_MutablePlotDataLabels, plot)
+    mutable_plot.has_data_labels = has_data_labels
+
+
+def plot_data_labels(plot: object) -> object | None:
+    """Return plot data-label collection when available."""
+    return getattr(cast(_PlotDataLabels, plot), "data_labels", None)
+
+
+def series_points(series: object) -> list[object]:
+    """Return points from a chart series."""
+    return _iter_objects(getattr(series, "points", None))
+
+
+def point_fill_solid(point: object) -> None:
+    """Convert point fill to solid when supported."""
+    point_format = getattr(point, "format", None)
+    fill = getattr(point_format, "fill", None)
+    solid = getattr(fill, "solid", None)
+    if callable(solid):
+        solid()
+
+
+def point_fill_fore_color(point: object) -> object | None:
+    """Return point fill foreground color when available."""
+    point_format = getattr(point, "format", None)
+    fill = getattr(point_format, "fill", None)
+    return getattr(fill, "fore_color", None)
+
+
+def point_line_fill_background(point: object) -> None:
+    """Set point line fill background when supported."""
+    point_format = getattr(point, "format", None)
+    line = getattr(point_format, "line", None)
+    fill = getattr(line, "fill", None)
+    background = getattr(fill, "background", None)
+    if callable(background):
+        background()
+
+
+def slide_size_emu(slide: object) -> tuple[int, int] | None:
+    """Return presentation slide size for a slide in EMU."""
+    part = getattr(slide, "part", None)
+    package = getattr(part, "package", None)
+    presentation_part = getattr(package, "presentation_part", None)
+    presentation = getattr(presentation_part, "presentation", None)
+    width = getattr(presentation, "slide_width", None)
+    height = getattr(presentation, "slide_height", None)
+    if width is None or height is None:
+        return None
+    try:
+        return (int(width), int(height))
+    except (TypeError, ValueError):
+        return None
+
+
+def paragraph_font(paragraph: object) -> object | None:
+    """Return paragraph font object when available."""
+    return getattr(paragraph, "font", None)
+
+
+class _MutableFont(Protocol):
+    size: object
+
+
+def set_font_size(font: object, size: object) -> None:
+    """Set font size for a paragraph font object."""
+    mutable_font = cast(_MutableFont, font)
+    mutable_font.size = size
+
+
 def shape_has_connector_endpoints(shape: object) -> bool:
     """Return whether shape exposes connector endpoints."""
     return getattr(shape, "begin_x", None) is not None and getattr(shape, "end_x", None) is not None
