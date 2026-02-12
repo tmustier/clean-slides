@@ -13,6 +13,7 @@ from pptx.enum.shapes import MSO_SHAPE, PP_PLACEHOLDER
 from pptx.oxml.ns import qn
 from pptx.util import Emu, Inches, Pt
 
+from ..pptx_access import chart_series_names, shape_has_text_frame, slide_charts
 from . import annotations as _annotations
 from . import payloads as _payloads
 from .colors import apply_color
@@ -160,17 +161,6 @@ def _chart_box(value: tuple[object, object, object, object]) -> ChartBox | None:
     return (emu_values[0], emu_values[1], emu_values[2], emu_values[3])
 
 
-def _slide_charts(slide: Any) -> list[Any]:
-    charts: list[Any] = []
-    for shape in slide.shapes:
-        if not bool(getattr(shape, "has_chart", False)):
-            continue
-        chart = getattr(shape, "chart", None)
-        if chart is not None:
-            charts.append(chart)
-    return charts
-
-
 def apply_chart_template_dlbls(
     target_chart: Any,
     template_path: Path,
@@ -183,13 +173,14 @@ def apply_chart_template_dlbls(
         return
 
     slide = prs.slides[slide_index]
-    template_charts = _slide_charts(slide)
+    template_charts = slide_charts(slide)
     if chart_index < 0 or chart_index >= len(template_charts):
         return
 
     template_chart = template_charts[chart_index]
 
-    template_series = get_chart_series(template_chart._chartSpace)
+    template_chart_obj = cast(Any, template_chart)
+    template_series = get_chart_series(template_chart_obj._chartSpace)
     target_series = get_chart_series(target_chart._chartSpace)
     if not template_series or not target_series:
         return
@@ -371,7 +362,7 @@ def find_layout(prs: Any, name: str | None) -> Any | None:
 
 def apply_template_placeholders(slide: Any, title: str | None, subtitle: str | None) -> None:
     for placeholder in slide.placeholders:
-        if not bool(getattr(placeholder, "has_text_frame", False)):
+        if not shape_has_text_frame(placeholder):
             continue
 
         ph_type = placeholder.placeholder_format.type
@@ -444,8 +435,7 @@ def select_slide(
 
     if use_template and append_slide and len(prs.slides) == 1:
         slide = prs.slides[0]
-        has_chart = any(bool(getattr(shape, "has_chart", False)) for shape in slide.shapes)
-        if not has_chart:
+        if not slide_charts(slide):
             return slide
 
     return prs.slides.add_slide(slide_layout)
@@ -557,7 +547,7 @@ def build_chart(
         )
 
         if series_selector is not None:
-            series_names = [str(getattr(series, "name", "")) for series in chart.series]
+            series_names = chart_series_names(chart)
             indices = resolve_series_indices(series_selector, series_names)
             for idx in indices:
                 if 0 <= idx < len(chart.series):
