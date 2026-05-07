@@ -4,4 +4,3 @@
 
 ### Changed
 - Update Pi install instructions to the new `@earendil-works/pi-coding-agent` package namespace.
-
