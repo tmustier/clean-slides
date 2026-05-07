@@ -173,6 +173,6 @@ More on the design philosophy: [mustier.ai/projects/clean-slides](https://mustie
 Clean Slides works with any agent, but I use [pi.dev](https://pi.dev) with my [Agent Teams](https://github.com/tmustier/pi-agent-teams) extension that lets the agent create clones of itself with the same context and manage them — so each clone worked on one page with full context, and the original agent focused on output quality and consistency, similar to how a consulting team would split work after a group problem-solving meeting. You can optionally do this with:
 
 ```bash
-npm install -g @mariozechner/pi-coding-agent
+npm install -g @earendil-works/pi-coding-agent
 pi install npm:@tmustier/pi-agent-teams
 ```
